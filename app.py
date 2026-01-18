@@ -2,7 +2,7 @@ from os import getcwdb
 from flask import Flask, app, render_template, request, redirect, url_for, session, flash, jsonify
 from flask_session import Session
 import sqlite3
-from flask.sansio.app import App
+from flask import Flask
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta, timezone
 from calendar import month_name
