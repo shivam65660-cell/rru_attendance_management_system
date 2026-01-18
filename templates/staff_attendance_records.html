@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Attendance Records | Staff{% endblock %}
+{% block content %}
+
+<div class="container mt-5">
+
+  <div class="card shadow-lg border-0 rounded-4">
+
+    <!-- Header -->
+    <div class="card-header bg-dark text-white rounded-top-4 d-flex justify-content-between">
+      <h4 class="mb-0">📅 Attendance Records</h4>
+
+      <!-- CSV Download -->
+      <a href="{{ url_for('staff_download_attendance') }}"
+         class="btn btn-success btn-sm rounded-pill px-4">
+        ⬇️ Download CSV
+      </a>
+    </div>
+
+    <div class="card-body">
+
+      <!-- ===================== FILTERS ===================== -->
+      <form method="POST" class="row g-3 mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <!-- Course -->
+        <div class="col-md-3">
+          <label class="fw-bold">Course</label>
+          <select name="course_id" class="form-select rounded-pill">
+            <option value="">All Courses</option>
+            {% for c in courses %}
+            <option value="{{ c.id }}" {% if selected_course == c.id|string %}selected{% endif %}>
+              {{ c.course_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Semester -->
+        <div class="col-md-2">
+          <label class="fw-bold">Semester</label>
+          <select name="semester" class="form-select rounded-pill">
+            <option value="">All Semesters</option>
+            {% for i in range(1,9) %}
+            <option value="{{ i }}" {% if selected_semester == i|string %}selected{% endif %}>
+              Sem {{ i }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Subject -->
+        <div class="col-md-3">
+          <label class="fw-bold">Subject</label>
+          <select name="subject_id" class="form-select rounded-pill">
+            <option value="">All Subjects</option>
+            {% for sub in subjects %}
+            <option value="{{ sub.id }}" {% if selected_subject == sub.id|string %}selected{% endif %}>
+              {{ sub.subject_name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Year -->
+        <div class="col-md-2">
+          <label class="fw-bold">Year</label>
+          <select name="year" class="form-select rounded-pill">
+            <option value="">All Years</option>
+            {% for y in range(2020, 2031) %}
+            <option value="{{ y }}" {% if selected_year == y|string %}selected{% endif %}>
+              {{ y }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Month -->
+        <div class="col-md-2">
+          <label class="fw-bold">Month</label>
+          <select name="month" class="form-select rounded-pill">
+            <option value="">All Months</option>
+            {% for m in range(1, 13) %}
+            <option value="{{ m }}" {% if selected_month == m|string %}selected{% endif %}>
+              {{ m }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-md-2 mt-4">
+          <button type="submit" class="btn btn-primary rounded-pill w-100">Filter</button>
+        </div>
+      </form>
+
+      <!-- ===================== RECORDS TABLE ===================== -->
+      {% if records %}
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+          <thead class="table-primary text-center">
+            <tr>
+              <th>Date</th>
+              <th>Roll No.</th>
+              <th>Name</th>
+              <th>Course</th>
+              <th>Semester</th>
+              <th>Status</th>
+              <th>Remark</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for r in records %}
+            <tr class="text-center">
+
+              <td>{{ r.date }}</td>
+              <td>{{ r.roll_number }}</td>
+              <td>{{ r.student_name }}</td>
+              <td>{{ r.course_name }}</td>
+              <td>{{ r.semester }}</td>
+
+              <td>
+                {% if r.status == 'Present' %}
+                <span class="badge bg-success">Present</span>
+                {% else %}
+                <span class="badge bg-danger">Absent</span>
+                {% endif %}
+              </td>
+
+              <td>{{ r.remark or '-' }}</td>
+
+              <td>
+                <!-- EDIT BUTTON (Modal) -->
+                <button class="btn btn-warning btn-sm rounded-pill"
+                        onclick="openEditAttendance('{{ r.id }}')">
+                  ✏️ Edit
+                </button>
+
+                <!-- DELETE -->
+                <a href="{{ url_for('staff_delete_attendance', attendance_id=r.id) }}"
+                   onclick="return confirm('Delete this record?');"
+                   class="btn btn-danger btn-sm rounded-pill">
+                  🗑 Delete
+                </a>
+              </td>
+
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% else %}
+      <p class="text-center text-muted">No attendance records found.</p>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ===================== EDIT ATTENDANCE MODAL ===================== -->
+<div class="modal fade" id="editAttendanceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content rounded-4">
+
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title">Edit Attendance</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <form id="editAttendanceForm">
+          <input type="hidden" id="attendance_id">
+
+          <div class="mb-3">
+            <label>Status</label>
+            <select id="edit_status" class="form-select">
+              <option value="Present">Present</option>
+              <option value="Absent">Absent</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label>Remark</label>
+            <input type="text" id="edit_remark" class="form-control">
+          </div>
+
+          <button type="submit" class="btn btn-warning w-100 rounded-pill">Save Changes</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ===================== EDIT JS ===================== -->
+<script>
+async function openEditAttendance(id) {
+  const res = await fetch(`/staff/attendance/edit/${id}`);
+  const data = await res.json();
+
+  document.getElementById("attendance_id").value = id;
+  document.getElementById("edit_status").value = data.status;
+  document.getElementById("edit_remark").value = data.remark;
+
+  new bootstrap.Modal(document.getElementById("editAttendanceModal")).show();
+}
+
+document.getElementById("editAttendanceForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const id = document.getElementById("attendance_id").value;
+
+  const res = await fetch(`/staff/attendance/edit/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      status: document.getElementById("edit_status").value,
+      remark: document.getElementById("edit_remark").value
+    })
+  });
+
+  const data = await res.json();
+  alert(data.message || "Updated!");
+  location.reload();
+});
+</script>
+
+{% endblock %}

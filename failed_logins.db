@@ -1,0 +1,18 @@
+import sqlite3
+
+conn = sqlite3.connect("rru.db")
+cur = conn.cursor()
+
+conn.execute("""
+CREATE TABLE IF NOT EXISTS failed_logins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  attempts INTEGER DEFAULT 0,
+  last_attempt TEXT,
+  locked_until TEXT
+);
+""")
+conn.commit()
+conn.close()
+print(" done successfully")

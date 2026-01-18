@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-3">Teacher Assignments</h2>
+
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <table class="table table-striped table-hover align-middle">
+    <thead class="table-dark">
+      <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Assignments</th>
+        <th>Assign / Update</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in teachers %}
+      <tr>
+        <td><strong>{{ t.name }}</strong></td>
+        <td>{{ t.email }}</td>
+
+        <!-- Assignment Table -->
+        <td>
+          {% if teacher_courses.get(t.id) %}
+          <table class="table table-bordered table-sm mb-0">
+            <thead>
+              <tr>
+                <th>School</th>
+                <th>Course</th>
+                <th>Subject</th>
+                <th>Semester</th>
+                <th>Remove</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in teacher_courses[t.id] %}
+              <tr>
+                <td>{{ a.school }}</td>
+                <td>{{ a.course }}</td>
+                <td>{{ a.subject }}</td>
+                <td>{{ a.semester }}</td>
+                <td>
+                  <form method="POST" action="{{ url_for('delete_assignment', assignment_id=a.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-danger" onclick="return confirm('Remove this assignment?')">✕</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+            <span class="text-muted">No assignments</span>
+          {% endif %}
+        </td>
+
+        <!-- Assign New Course -->
+        <td>
+          <form method="POST" action="{{ url_for('assign_course', teacher_id=t.id) }}" 
+                class="needs-validation d-flex flex-wrap gap-2" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <!-- School -->
+            <select name="school_id" class="form-select form-select-sm" 
+                    onchange="loadCourses(this, '{{ t.id }}')" required>
+              <option value="">Select School</option>
+              {% for s in schools %}
+                <option value="{{ s.id }}">{{ s.school_name }}</option>
+              {% endfor %}
+            </select>
+
+            <!-- Course -->
+            <select name="course_id" id="course_{{ t.id }}" 
+                    class="form-select form-select-sm" onchange="updateSubjects('{{ t.id }}')" required>
+              <option value="">Select Course</option>
+            </select>
+
+            <!-- Semester -->
+            <select name="semester" id="semester_{{ t.id }}" 
+                    class="form-select form-select-sm" onchange="updateSubjects('{{ t.id }}')" required>
+              <option value="">Select Semester</option>
+              {% for sem in range(1, 9) %}
+              <option value="{{ sem }}">Sem {{ sem }}</option>
+              {% endfor %}
+            </select>
+
+            <!-- Subject -->
+            <select name="subject_id" id="subject_{{ t.id }}" class="form-select form-select-sm" required>
+              <option value="">Select Subject</option>
+            </select>
+
+            <button class="btn btn-sm btn-success">Assign</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ==================== SCRIPTS ==================== -->
+<script>
+function loadCourses(select, teacherId) {
+  let schoolId = select.value;
+  let courseDropdown = document.getElementById("course_" + teacherId);
+  let subjectDropdown = document.getElementById("subject_" + teacherId);
+
+  courseDropdown.innerHTML = "<option value=''>Loading...</option>";
+  subjectDropdown.innerHTML = "<option value=''>Select Subject</option>";
+
+  if (schoolId) {
+    fetch(`/get_courses/${schoolId}`)
+      .then(res => res.json())
+      .then(data => {
+        courseDropdown.innerHTML = "<option value=''>Select Course</option>";
+        data.forEach(c => {
+          courseDropdown.innerHTML += `<option value="${c.id}">${c.course_name}</option>`;
+        });
+      });
+  } else {
+    courseDropdown.innerHTML = "<option value=''>Select Course</option>";
+  }
+}
+
+function updateSubjects(teacherId) {
+  let courseId = document.getElementById("course_" + teacherId).value;
+  let semester = document.getElementById("semester_" + teacherId).value;
+  let subjectDropdown = document.getElementById("subject_" + teacherId);
+
+  if (courseId && semester) {
+    subjectDropdown.innerHTML = "<option>Loading...</option>";
+    fetch(`/get_subjects/${courseId}/${semester}/${teacherId}`)
+      .then(res => res.json())
+      .then(data => {
+        subjectDropdown.innerHTML = "<option value=''>Select Subject</option>";
+        data.forEach(s => {
+          subjectDropdown.innerHTML += `<option value="${s.id}">${s.subject_name}</option>`;
+        });
+        if (data.length === 0) {
+          subjectDropdown.innerHTML = "<option value=''>No unassigned subjects</option>";
+        }
+      });
+  } else {
+    subjectDropdown.innerHTML = "<option value=''>Select Subject</option>";
+  }
+}
+
+// Bootstrap Form Validation
+(() => {
+  const forms = document.querySelectorAll('.needs-validation');
+  Array.from(forms).forEach(form => {
+    form.addEventListener('submit', event => {
+      if (!form.checkValidity()) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      form.classList.add('was-validated')
+    }, false);
+  });
+})();
+</script>
+{% endblock %}

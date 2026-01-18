@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}Admin Attendance Management{% endblock %}
+{% block content %}
+
+<div class="container mt-4">
+  <div class="card shadow-lg border-0">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">🗂 Admin Attendance Management Panel</h5>
+      <div class="d-flex gap-2 align-items-center">
+        <select id="year" class="form-select form-select-sm w-auto">
+          {% for y in range(2022, 2031) %}
+          <option value="{{y}}" {% if y == 2025 %}selected{% endif %}>{{y}}</option>
+          {% endfor %}
+        </select>
+        <select id="month" class="form-select form-select-sm w-auto">
+          <option value="">All Months</option>
+          {% for m in range(1,13) %}
+          <option value="{{m}}">{{["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m-1]}}</option>
+          {% endfor %}
+        </select>
+        <button id="btnMonthCSV" class="btn btn-success btn-sm">⬇️ Download Month CSV</button>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <!-- 🔹 Filters -->
+      <div class="row mb-3 g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label fw-bold">School</label>
+          <select id="school" class="form-select">
+            <option value="">Select School</option>
+            {% for s in schools %}
+            <option value="{{ s['id'] }}">{{ s['school_name'] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-bold">Course</label>
+          <select id="course" class="form-select"><option value="">Select Course</option></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-bold">Semester</label>
+          <select id="semester" class="form-select"><option value="">Select Semester</option></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-bold">Subject</label>
+          <select id="subject" class="form-select"><option value="">Select Subject</option></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-bold">Student</label>
+          <select id="student" class="form-select"><option value="">All Students</option></select>
+        </div>
+        <div class="col-md-2 text-end d-flex gap-2">
+          <button id="btnClear" class="btn btn-secondary btn-sm">Clear</button>
+          <button id="btnView" class="btn btn-primary btn-sm">📊Load Attendance</button>
+        </div>
+      </div>
+
+      <!-- 🔍 Quick Search Bar -->
+      <div class="input-group mb-3">
+        <input type="text" id="searchRoll" class="form-control" placeholder="Enter Roll Number to Search...">
+        <button id="btnSearchRoll" class="btn btn-outline-primary">🔍 Search</button>
+      </div>
+
+      <hr>
+
+      <!-- 📊 Attendance Table -->
+      <div class="table-responsive">
+        <table id="attendanceTable" class="table table-bordered table-striped align-middle text-center">
+          <thead class="table-primary">
+            <tr>
+              <th>Roll No</th>
+              <th>Name</th>
+              <th>Subject</th>
+              <th>Total</th>
+              <th>Present</th>
+              <th>%</th>
+              <th>Month-wise %</th>
+              <th>Last Status</th>
+              <th>Remark</th>
+              <th>Marked By</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="attendanceBody">
+            <tr><td colspan="11" class="text-muted">Please apply filters and click “View”</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 📝 Edit Attendance Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title">Edit Attendance</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="editForm">
+          <input type="hidden" id="attendance_id">
+          <div class="mb-3">
+            <label class="form-label">Status</label>
+            <select id="edit_status" class="form-select">
+              <option value="Present">Present</option>
+              <option value="Absent">Absent</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Remark</label>
+            <textarea id="edit_remark" class="form-control" rows="2"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button id="btnUpdate" class="btn btn-primary">Update</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 📅 View Student Attendance Modal -->
+<div class="modal fade" id="viewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title">Student Attendance Detail</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-bordered text-center align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Remark</th>
+              <th>Marked By</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="studentAttendanceBody">
+            <tr><td colspan="5" class="text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const school = document.getElementById("school"),
+        course = document.getElementById("course"),
+        semester = document.getElementById("semester"),
+        subject = document.getElementById("subject"),
+        student = document.getElementById("student"),
+        body = document.getElementById("attendanceBody");
+
+  // Load dropdowns dynamically
+  school.onchange = async () => {
+    course.innerHTML = "<option value=''>Select Course</option>";
+    const res = await fetch(`/admin/ajax/get_courses/${school.value}`);
+    const data = await res.json();
+    data.forEach(c => course.innerHTML += `<option value="${c.id}">${c.course_name}</option>`);
+  };
+
+  course.onchange = async () => {
+    semester.innerHTML = "<option value=''>Select Semester</option>";
+    const res = await fetch(`/admin/ajax/get_semesters/${course.value}`);
+    const data = await res.json();
+    data.forEach(s => semester.innerHTML += `<option value="${s}">${s}</option>`);
+  };
+
+  semester.onchange = async () => {
+    subject.innerHTML = "<option value=''>Select Subject</option>";
+    const res = await fetch(`/admin/ajax/get_subjects/${course.value}/${semester.value}`);
+    const data = await res.json();
+    data.forEach(su => subject.innerHTML += `<option value="${su.id}">${su.subject_name}</option>`);
+
+    // Load students
+    const res2 = await fetch(`/admin/ajax/get_students/${course.value}/${semester.value}`);
+    const data2 = await res2.json();
+    student.innerHTML = "<option value=''>All Students</option>";
+    data2.forEach(st => student.innerHTML += `<option value="${st.id}">${st.roll_number} - ${st.name}</option>`);
+  };
+
+  // Fetch Attendance
+  async function fetchAttendance(extraParams = {}) {
+  const params = new URLSearchParams({
+    school_id: document.getElementById("school").value,
+    course_id: document.getElementById("course").value,
+    semester: document.getElementById("semester").value,
+    subject_id: document.getElementById("subject").value,
+    student_id: document.getElementById("student").value,
+    year: document.getElementById("year").value,
+    ...extraParams // ✅ Roll Number जैसी extra query yahan se merge hogi
+  });
+    const res = await fetch(`/admin/ajax/get_attendance?${params}`);
+    const json = await res.json();
+
+    if (!json.data?.length) {
+      body.innerHTML = `<tr><td colspan="11" class="text-muted">No attendance data found</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = "";
+    json.data.forEach(row => {
+      const monthPercent = (row.percent / 12).toFixed(2); // simple month avg example
+      body.innerHTML += `
+        <tr>
+          <td>${row.roll_number}</td>
+          <td>${row.student_name}</td>
+          <td>${row.subject_name}</td>
+          <td>${row.total}</td>
+          <td>${row.present}</td>
+          <td>${row.percent}%</td>
+          <td>${monthPercent}%</td>
+          <td>${row.rows[0]?.status || '-'}</td>
+          <td>${row.rows[0]?.remark || '-'}</td>
+          <td>${row.rows[0]?.teacher_name || '-'}</td>
+          <td><button class="btn btn-sm btn-outline-info viewBtn" data-id="${row.student_id}">👁️ View</button>
+          <button class="btn btn-sm btn-outline-primary editBtn" data-id="${row.rows[0]?.attendance_id}">✏️ Edit</button>
+          </td>
+        </tr>`;
+    });
+  }
+
+  document.getElementById("btnView").onclick = fetchAttendance;
+
+  // Quick Roll Search
+  document.getElementById("btnSearchRoll").onclick = async () => {
+  const roll = document.getElementById("searchRoll").value.trim();
+  if (!roll) return alert("Enter roll number to search");
+
+  const res = await fetch("/admin/ajax/search_by_roll", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roll_number: roll })
+  });
+  const data = await res.json();
+
+  const body = document.getElementById("attendanceBody");
+  body.innerHTML = "";
+
+  if (!data.records || data.records.length === 0) {
+    body.innerHTML = `<tr><td colspan="11" class="text-muted">No attendance found for Roll No: ${roll}</td></tr>`;
+    return;
+  }
+
+  data.records.forEach(r => {
+    body.innerHTML += `
+      <tr>
+        <td>${r.roll_number}</td>
+        <td>${r.student_name}</td>
+        <td>${r.subject_name || '-'}</td>
+        <td>-</td>
+        <td>-</td>
+        <td>-</td>
+        <td>-</td>
+        <td>${r.status}</td>
+        <td>${r.remark || '-'}</td>
+        <td>${r.teacher_name || '-'}</td>
+        <td><button class="btn btn-sm btn-outline-primary editBtn" data-id="${r.student_id}">✏️ Edit</button></td>
+      </tr>
+    `;
+  });
+};
+document.getElementById("searchRoll").addEventListener("keypress", e => {
+  if (e.key === "Enter") {
+    document.getElementById("btnSearchRoll").click();
+  }
+});
+
+  // CSV Download
+  document.getElementById("btnMonthCSV").onclick = () => {
+    const month = document.getElementById("month").value;
+    const year = document.getElementById("year").value;
+    if (!month) return alert("Select a month first");
+    window.location.href = `/admin/download_month_csv?month=${month}&year=${year}`;
+  };
+
+  // Edit Attendance
+  document.addEventListener("click", e => {
+    if (e.target.classList.contains("editBtn")) {
+      const id = e.target.dataset.id;
+      document.getElementById("attendance_id").value = id;
+      new bootstrap.Modal(document.getElementById("editModal")).show();
+    }
+  });
+
+  document.getElementById("btnUpdate").onclick = async () => {
+    const id = document.getElementById("attendance_id").value;
+    const form = new FormData();
+    form.append("status", document.getElementById("edit_status").value);
+    form.append("remark", document.getElementById("edit_remark").value);
+    const res = await fetch(`/admin/ajax/update_attendance/${id}`, { method: "POST", body: form });
+    const result = await res.json();
+    if (result.success) {
+      alert("Attendance updated!");
+      bootstrap.Modal.getInstance(document.getElementById("editModal")).hide();
+      fetchAttendance();
+    } else alert(result.error || "Update failed");
+  };
+
+  document.getElementById("btnClear").onclick = () => location.reload();
+});
+
+// 🔹 View Student Date-wise Attendance
+document.addEventListener("click", async e => {
+  if (e.target.classList.contains("viewBtn")) {
+    const studentId = e.target.dataset.id;
+    const tbody = document.getElementById("studentAttendanceBody");
+    tbody.innerHTML = `<tr><td colspan="5" class="text-muted">Loading...</td></tr>`;
+
+    const res = await fetch(`/admin/ajax/student_attendance_detail/${studentId}`);
+    const data = await res.json();
+
+    if (!data.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-muted">No attendance found</td></tr>`;
+    } else {
+      tbody.innerHTML = "";
+      data.forEach(r => {
+        tbody.innerHTML += `
+          <tr>
+            <td>${r.date}</td>
+            <td>
+              <select class="form-select form-select-sm statusSelect" data-id="${r.attendance_id}">
+                <option value="Present" ${r.status === "Present" ? "selected" : ""}>Present</option>
+                <option value="Absent" ${r.status === "Absent" ? "selected" : ""}>Absent</option>
+              </select>
+            </td>
+            <td><input type="text" class="form-control form-control-sm remarkInput" data-id="${r.attendance_id}" value="${r.remark || ""}"></td>
+            <td>${r.teacher_name || "-"}</td>
+            <td><button class="btn btn-sm btn-success saveSingle" data-id="${r.attendance_id}">💾 Save</button></td>
+          </tr>
+        `;
+      });
+    }
+
+    new bootstrap.Modal(document.getElementById("viewModal")).show();
+  }
+});
+
+// 🔹 Save single date update
+document.addEventListener("click", async e => {
+  if (e.target.classList.contains("saveSingle")) {
+    const id = e.target.dataset.id;
+    const status = document.querySelector(`.statusSelect[data-id='${id}']`).value;
+    const remark = document.querySelector(`.remarkInput[data-id='${id}']`).value;
+
+    const form = new FormData();
+    form.append("status", status);
+    form.append("remark", remark);
+
+    const res = await fetch(`/admin/ajax/update_attendance/${id}`, { method: "POST", body: form });
+    const result = await res.json();
+
+    if (result.success) {
+      e.target.classList.remove("btn-success");
+      e.target.classList.add("btn-secondary");
+      e.target.innerText = "✅ Saved";
+    } else {
+      alert("Update failed!");
+    }
+  }
+});
+
+</script>
+
+{% endblock %}

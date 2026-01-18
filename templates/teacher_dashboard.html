@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  body {
+    background-color: #f8f9fc;
+  }
+  .dashboard-header {
+    background: linear-gradient(90deg, #003366, #0055aa);
+    color: white;
+    padding: 15px 20px;
+    border-radius: 12px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+  }
+  .dashboard-header h2 {
+    font-weight: 600; color: white;
+  }
+  .dashboard-header .btn {
+    border-radius: 20px;
+    font-size: 0.9rem;
+  }
+  .card-custom {
+    border-radius: 15px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    background: white;
+    padding: 20px;
+    transition: all 0.3s;
+  }
+  .card-custom:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.15);
+  }
+  table th {
+    background-color: #003366 !important;
+    color: white !important;
+    text-align: center;
+  }
+  .btn-primary, .btn-success, .btn-warning {
+    border-radius: 10px;
+  }
+  .modal-content {
+    border-radius: 15px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.2);
+  }
+  .form-label {
+    font-weight: 500;
+  }
+</style>
+
+<div class="container mt-4">
+
+  <!-- 🧑‍🏫 Header -->
+  <div class="dashboard-header d-flex align-items-center justify-content-between mb-4">
+    <h2 class="m-0">👨‍🏫 Teacher Dashboard</h2>
+    <div>
+      <button class="btn btn-light me-2" data-bs-toggle="modal" data-bs-target="#sendNotificationModal">
+        📢 Send Notification
+      </button>
+      <button class="btn btn-warning text-dark" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
+        🔑 Change Password
+      </button>
+    </div>
+  </div>
+
+  <!-- 🔍 Filter Form -->
+  <div class="card-custom mb-4">
+    <h5 class="mb-3"><i class="bi bi-funnel"></i> Filter Students for Attendance</h5>
+    <form id="filterForm" method="POST" action="{{ url_for('teacher_dashboard') }}" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Select School -->
+    <div class="col-md-3">
+      <label for="school" class="form-label">Select School</label>
+      <select name="school_id" id="school" class="form-select" required>
+        <option value="">Choose...</option>
+        {% for school in schools %}
+        <option value="{{ school.id }}">{{ school.school_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Select Course -->
+    <div class="col-md-3">
+      <label for="course" class="form-label">Select Course</label>
+      <select name="course_id" id="course" class="form-select" required>
+        <option value="">Choose...</option>
+      </select>
+    </div>
+
+    <!-- Select Semester -->
+    <div class="col-md-2">
+      <label for="semester" class="form-label">Semester</label>
+      <select name="semester" id="semester" class="form-select" required>
+        <option value="">Choose...</option>
+        {% for i in range(1, 11) %}
+        <option value="{{ i }}">Semester {{ i }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Select Subject -->
+    <div class="col-md-3">
+      <label for="subject" class="form-label">Select Subject</label>
+      <select name="subject_id" id="subject" class="form-select" required>
+        <option value="">Choose...</option>
+      </select>
+    </div>
+
+    <!-- Load Students -->
+    <div class="col-md-1 align-self-end">
+      <button type="button" class="btn btn-primary w-100" onclick="loadStudents()">Load</button>
+    </div>
+   </form>
+  </div>
+
+  <!-- 👩‍🎓 Students Table Section -->
+  <div id="studentsSection" style="display:none;">
+    <form method="POST" action="{{ url_for('mark_attendance') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="course_id" id="hidden_course_id">
+      <input type="hidden" name="semester" id="hidden_semester">
+      <input type="hidden" name="subject_id" id="hidden_subject_id">
+
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+          <thead class="table-dark text-center">
+            <tr>
+              <th>#</th>
+              <th>Roll Number</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Remark</th>
+            </tr>
+          </thead>
+          <tbody id="studentTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="text-center mt-3">
+        <button type="submit" class="btn btn-success px-4">✅Submit Attendance</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- My Attendance Logs -->
+<div class="card-custom mb-4">
+  <h5><i class="bi bi-journal-text"></i> My Attendance Logs</h5>
+  <div class="row g-2 align-items-end mb-3">
+    <div class="col-auto">
+      <select id="my_course" class="form-select">
+        <option value="">Course</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="my_semester" class="form-select">
+        <option value="">Semester</option>
+        {% for i in range(1,9) %}<option value="{{i}}">{{i}}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="my_subject" class="form-select">
+        <option value="">Subject</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <button id="btnLoadMyLogs" class="btn btn-sm btn-primary">Load My Logs</button>
+    </div>
+  </div>
+
+  <div id="myLogsSection" style="display:none;">
+      <div class="table-responsive">
+        <table class="table table-bordered table-striped align-middle text-center">
+          <thead>
+            <tr><th>Date</th><th>Roll</th><th>Name</th><th>Subject</th><th>Status</th><th>Remark</th><th>Action</th></tr>
+          </thead>
+          <tbody id="myLogsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit modal for teacher -->
+<div class="modal fade" id="teacherEditModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form id="teacherEditForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Edit Attendance</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="edit_attendance_id">
+          <div class="mb-2">
+            <label>Status</label>
+            <select id="edit_status_teacher" class="form-select"><option>Present</option><option>Absent</option></select>
+          </div>
+          <div class="mb-2">
+            <label>Remark</label>
+            <input type="text" id="edit_remark_teacher" class="form-control">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancel</button>
+          <button class="btn btn-success" type="submit">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Send Notification Modal -->
+<div class="modal fade" id="sendNotificationModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <form method="POST" action="{{ url_for('teacher_send_notification') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="modal-content">
+        <div class="modal-header"><h5>Send Notification</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label>Title</label>
+            <input name="title" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label>Message</label>
+            <textarea name="message" class="form-control" rows="4"></textarea>
+          </div>
+
+          <div class="row g-2">
+            <div class="col">
+              <label>School</label>
+              <select name="school_id" id="notif_school" class="form-select">
+                <option value="">Any</option>
+                {% for s in schools %}<option value="{{s.id}}">{{s.school_name}}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col">
+              <label>Course</label>
+              <select name="course_id" id="notif_course" class="form-select"></select>
+            </div>
+            <div class="col">
+              <label>Semester</label>
+              <select name="semester" id="notif_sem" class="form-select">
+                <option value="">Any</option>
+                {% for i in range(1,9) %}<option value="{{i}}">{{i}}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="radio" name="target" id="target_all" value="all" checked>
+            <label for="target_all" class="form-check-label">Send to all students of selected Course+Semester</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="target" id="target_student" value="student">
+            <label for="target_student" class="form-check-label">Send to single student (choose below)</label>
+          </div>
+
+          <div id="singleStudentBlock" style="display:none;" class="mt-2">
+            <label>Select Student</label>
+            <select name="student_id" id="notif_student" class="form-select"></select>
+          </div>
+
+          <div class="mt-2">
+            <label>Attach File (optional)</label>
+            <input type="file" name="file" class="form-control">
+            <small class="text-muted">Allowed: png,jpg,pdf,ppt,pptx,doc,docx,zip (max 16MB)</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// 🏫 Load courses when school changes
+document.getElementById("notif_school").addEventListener("change", async function () {
+  const schoolId = this.value;
+  const courseSel = document.getElementById("notif_course");
+  courseSel.innerHTML = "<option>Loading...</option>";
+
+  if (!schoolId) {
+    courseSel.innerHTML = "<option value=''>Choose...</option>";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/get_courses/${schoolId}`);
+    const data = await res.json();
+    courseSel.innerHTML = "<option value=''>Choose...</option>";
+    data.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.course_name;
+      courseSel.appendChild(opt);
+    });
+  } catch (err) {
+    console.error("Error loading courses:", err);
+    courseSel.innerHTML = "<option value=''>Error loading</option>";
+  }
+});
+
+// 🎯 Toggle single student block
+document.getElementById("target_all").addEventListener("change", function() {
+  document.getElementById("singleStudentBlock").style.display = "none";
+});
+document.getElementById("target_student").addEventListener("change", function() {
+  document.getElementById("singleStudentBlock").style.display = "block";
+});
+
+// 👩‍🎓 Load students dynamically
+async function loadNotifStudents() {
+  const courseId = document.getElementById("notif_course").value;
+  const sem = document.getElementById("notif_sem").value;
+  const studentSel = document.getElementById("notif_student");
+  studentSel.innerHTML = "<option>Loading...</option>";
+
+  if (!courseId || !sem) {
+    studentSel.innerHTML = "<option value=''>Select Course & Semester first</option>";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/teacher/ajax/get_students/${courseId}/${sem}`);
+    const students = await res.json();
+    studentSel.innerHTML = "<option value=''>Choose Student</option>";
+    students.forEach(st => {
+      const opt = document.createElement("option");
+      opt.value = st.id;
+      opt.textContent = `${st.roll_number} - ${st.name}`;
+      studentSel.appendChild(opt);
+    });
+  } catch (err) {
+    console.error("Error loading students:", err);
+    studentSel.innerHTML = "<option value=''>Error loading</option>";
+  }
+}
+
+document.getElementById("notif_course").addEventListener("change", loadNotifStudents);
+document.getElementById("notif_sem").addEventListener("change", loadNotifStudents);
+</script>
+
+<!-- 🔐 Change Password Modal -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+          <h5 class="modal-title">Change Password</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <form method="POST" action="{{ url_for('change_password') }}">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="old_password" class="form-label">Old Password</label>
+            <input type="password" class="form-control" id="old_password" name="old_password" required>
+          </div>
+          <div class="mb-3">
+            <label for="new_password" class="form-label">New Password</label>
+            <input type="password" class="form-control" id="new_password" name="new_password" required>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success">Update</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const teacherId = '{{ teacher.id | tojson }}';
+
+// 🏫 Load Courses
+document.getElementById('school').addEventListener('change', function () {
+  const schoolId = this.value;
+  const courseSelect = document.getElementById('course');
+  courseSelect.innerHTML = '<option value="">Loading...</option>';
+
+  if (!schoolId) {
+    courseSelect.innerHTML = '<option value="">Choose...</option>';
+    return;
+  }
+
+  fetch(`/get_courses/${schoolId}`)
+    .then(response => response.json())
+    .then(courses => {
+      courseSelect.innerHTML = '<option value="">Choose...</option>';
+      courses.forEach(course => {
+        const option = document.createElement('option');
+        option.value = course.id;
+        option.textContent = course.course_name;
+        courseSelect.appendChild(option);
+      });
+    });
+});
+
+// 📘 Load Subjects dynamically
+document.getElementById('course').addEventListener('change', loadSubjects);
+document.getElementById('semester').addEventListener('change', loadSubjects);
+
+function loadSubjects() {
+  const courseId = document.getElementById('course').value;
+  const semester = document.getElementById('semester').value;
+  const subjectSelect = document.getElementById('subject');
+  subjectSelect.innerHTML = '<option value="">Loading...</option>';
+
+  if (!courseId || !semester) {
+    subjectSelect.innerHTML = '<option value="">Choose...</option>';
+    return;
+  }
+
+  fetch(`/get_subjects_for_teacher/${teacherId}/${courseId}/${semester}`)
+    .then(response => response.json())
+    .then(subjects => {
+      subjectSelect.innerHTML = '<option value="">Choose...</option>';
+      if (subjects.length === 0) {
+        subjectSelect.innerHTML = '<option>No subjects assigned</option>';
+      } else {
+        subjects.forEach(sub => {
+          const option = document.createElement('option');
+          option.value = sub.id;
+          option.textContent = sub.subject_name;
+          subjectSelect.appendChild(option);
+        });
+      }
+    });
+}
+
+// 👨‍🎓 Load Students
+function loadStudents() {
+  const courseId = document.getElementById('course').value;
+  const semester = document.getElementById('semester').value;
+  const subjectId = document.getElementById('subject').value;
+
+  if (!courseId || !semester || !subjectId) {
+    alert("Please select Course, Semester, and Subject");
+    return;
+  }
+
+  fetch(`/teacher/load_students/${teacherId}/${courseId}/${semester}/${subjectId}`)
+    .then(response => response.json())
+    .then(students => {
+      const tbody = document.getElementById('studentTableBody');
+      tbody.innerHTML = '';
+      students.forEach((s, index) => {
+        tbody.innerHTML += `
+          <tr class="text-center">
+            <td>${index + 1}</td>
+            <td>${s.roll_number}</td>
+            <td>${s.name}</td>
+            <td>
+              <select name="status_${s.id}" class="form-select">
+                <option value="Present">Present</option>
+                <option value="Absent">Absent</option>
+              </select>
+            </td>
+            <td>
+              <input type="text" name="remark_${s.id}" class="form-control" placeholder="Remark (optional)">
+            </td>
+          </tr>
+        `;
+      });
+
+      document.getElementById('hidden_course_id').value = courseId;
+      document.getElementById('hidden_semester').value = semester;
+      document.getElementById('hidden_subject_id').value = subjectId;
+      document.getElementById('studentsSection').style.display = 'block';
+    });
+}
+</script>
+
+<script>
+// populate teacher assigned subjects into my_subject dropdown
+async function loadMySubjects() {
+  const res = await fetch('/teacher/ajax/get_my_subjects');
+  if (res.status !== 200) return;
+  const list = await res.json();
+  const subjectSel = document.getElementById('my_subject');
+  subjectSel.innerHTML = '<option value="">All Subjects</option>';
+  list.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.subject_id;
+    opt.textContent = s.subject_name + ' (Sem ' + s.semester + ')';
+    subjectSel.appendChild(opt);
+  });
+
+  // optional: fill course dropdown too from returned rows:
+  const courseSel = document.getElementById('my_course');
+  courseSel.innerHTML = '<option value="">All Courses</option>';
+  // collect unique courses
+  const courses = {};
+  list.forEach(s => { if (s.course_id) courses[s.course_id] = true; });
+  for (let cid in courses) {
+    const o = document.createElement('option'); o.value = cid; o.text = 'Course ' + cid; courseSel.appendChild(o);
+  }
+}
+
+// load logs
+async function loadMyLogs() {
+  const params = new URLSearchParams({
+    course_id: document.getElementById('my_course').value,
+    semester: document.getElementById('my_semester').value,
+    subject_id: document.getElementById('my_subject').value,
+    year: new Date().getFullYear()
+  });
+  const res = await fetch('/teacher/ajax/get_my_attendance?' + params.toString());
+  if (res.status !== 200) {
+    alert('Failed to load');
+    return;
+  }
+  const rows = await res.json();
+  const body = document.getElementById('myLogsBody');
+  body.innerHTML = '';
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="7" class="text-muted">No attendance found.</td></tr>';
+    document.getElementById('myLogsSection').style.display = 'block';
+    return;
+  }
+  rows.forEach(r => {
+    body.innerHTML += `
+      <tr>
+        <td>${r.date}</td>
+        <td>${r.roll_number}</td>
+        <td>${r.student_name}</td>
+        <td>${r.subject_name || '-'}</td>
+        <td>${r.status}</td>
+        <td>${r.remark || ''}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary editMyBtn" data-id="${r.attendance_id}" data-status="${r.status}" data-remark="${(r.remark||'').replace(/"/g,'&quot;')}">Edit</button>
+        </td>
+      </tr>`;
+  });
+  document.getElementById('myLogsSection').style.display = 'block';
+}
+
+// attach events
+document.addEventListener('DOMContentLoaded', () => {
+  loadMySubjects();
+  document.getElementById('btnLoadMyLogs').addEventListener('click', loadMyLogs);
+
+  // edit button click
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('editMyBtn')) {
+      const id = e.target.dataset.id;
+      document.getElementById('edit_attendance_id').value = id;
+      document.getElementById('edit_status_teacher').value = e.target.dataset.status;
+      document.getElementById('edit_remark_teacher').value = e.target.dataset.remark;
+      new bootstrap.Modal(document.getElementById('teacherEditModal')).show();
+    }
+  });
+
+  // submit edit
+  document.getElementById('teacherEditForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const id = document.getElementById('edit_attendance_id').value;
+    const form = new FormData();
+    form.append('status', document.getElementById('edit_status_teacher').value);
+    form.append('remark', document.getElementById('edit_remark_teacher').value);
+    const res = await fetch(`/teacher/ajax/update_attendance/${id}`, { method: 'POST', body: form });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      bootstrap.Modal.getInstance(document.getElementById('teacherEditModal')).hide();
+      loadMyLogs();
+      alert('Updated');
+    } else {
+      alert(json.error || 'Update failed');
+    }
+  });
+});
+</script>
+
+{% endblock %}

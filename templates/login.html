@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+.login-card {
+    max-width: 450px;
+    margin: auto;
+    background: rgba(255,255,255,0.9);
+    backdrop-filter: blur(10px);
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    animation: fadeIn .5s ease-in-out;
+}
+.login-title {
+    font-weight: 700;
+    color: #003366;
+}
+.input-group-text {
+    background: #0d6efd;
+    color: white;
+}
+@keyframes fadeIn {
+    from { opacity:0; transform: translateY(10px); }
+    to { opacity:1; transform: translateY(0); }
+}
+.link-hover {
+    color: #666;
+    font-size: 0.9rem;
+    transition: 0.3s;
+    text-decoration: none;
+}
+.link-hover:hover {
+    color: #0d6efd;
+    cursor: pointer;
+    text-decoration: underline;
+}
+/* शुरुआती तौर पर छिपा हुआ */
+#forgotPasswordContainer {
+    display: none;
+}
+</style>
+
+<div class="container mt-5">
+    <div class="login-card">
+        <h3 class="text-center login-title mb-4">Welcome Back 👋</h3>
+
+        <form method="POST" action="{{ url_for('login') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Login as</label>
+                <select class="form-select" name="role" id="roleSelect" required>
+                    <option value="" disabled selected>Choose your role</option>
+                    <option value="student">Student</option>
+                    <option value="teacher">Teacher</option>
+                    <option value="staff">Staff</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Email Address</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-envelope-fill"></i></span>
+                    <input type="email" class="form-control" name="email" required placeholder="name@rru.ac.in">
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Password</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                    <input type="password" class="form-control" name="password" required placeholder="••••••••">
+                </div>
+            </div>
+
+            <div class="mb-3 d-flex justify-content-center">
+                <div class="g-recaptcha" data-sitekey="6LcNqP4rAAAAACdZbYfui10faHgrvhoxj6WVvkmQ"></div>
+            </div>
+
+            <button class="btn btn-primary w-100 py-2 fw-bold" type="submit">Login</button>
+
+            <!-- Forgot Password Container: केवल Student के लिए JavaScript से दिखेगा -->
+            <div id="forgotPasswordContainer" class="text-center mt-3">
+                <span class="link-hover" data-bs-toggle="modal" data-bs-target="#forgotModal">
+                    <i class="bi bi-shield-lock me-1"></i> Forgot Student Password?
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ✅ Step 1: Forgot Password Modal (OTP Request) -->
+<div class="modal fade" id="forgotModal" tabindex="-1" aria-labelledby="forgotModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="forgotModalLabel">Reset Student Password</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+        <p class="text-muted small mb-4">We will send a 6-digit verification code to your registered email address.</p>
+        <form id="forgotForm">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Enter Your Email</label>
+                <input type="email" class="form-control" id="forgot_email" required placeholder="example@rru.ac.in">
+            </div>
+            <button type="button" class="btn btn-primary w-100 py-2" id="sendOtpBtn" onclick="handleSendOTP()">
+                <span id="otpText">Send OTP</span>
+                <span id="otpLoader" class="spinner-border spinner-border-sm d-none"></span>
+            </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ Step 2: OTP Verify & Reset Modal -->
+<div class="modal fade" id="otpModal" tabindex="-1" aria-labelledby="otpModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="otpModalLabel">Verify & Set New Password</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-4">
+        <form id="otpForm">
+            <div class="mb-3">
+                <label class="form-label fw-bold">6-Digit OTP Code</label>
+                <input type="text" class="form-control text-center fs-4 letter-spacing-lg" id="otp_code" maxlength="6" required placeholder="000000">
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">New Secure Password</label>
+                <input type="password" class="form-control" id="new_pass" minlength="6" required placeholder="Minimum 6 characters">
+            </div>
+            <button type="button" class="btn btn-success w-100 py-2 fw-bold" onclick="handleVerifyAndReset()">Verify & Reset</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.google.com/recaptcha/api.js" async defer></script>
+<script>
+// CSRF Security Token
+ const csrfToken = "{{ csrf_token() }}";
+
+// 1. Role Detection: "Student" चुनने पर ही "Forgot Password" दिखाना
+document.getElementById('roleSelect').addEventListener('change', function() {
+    const container = document.getElementById('forgotPasswordContainer');
+    if (this.value === 'student') {
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+    }
+});
+
+// 2. OTP भेजने का लॉजिक
+function handleSendOTP() {
+    const email = document.getElementById("forgot_email").value;
+    const btnText = document.getElementById("otpText");
+    const loader = document.getElementById("otpLoader");
+
+    if(!email) return alert("Please enter your registered email address.");
+
+    // UI Loading state
+    btnText.classList.add("d-none");
+    loader.classList.remove("d-none");
+
+    fetch("/send-otp", {
+        method: "POST",
+        headers: { 
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrfToken 
+        },
+        body: JSON.stringify({ email: email, role: 'student' })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            alert(data.message);
+            // Forgot modal को बंद करें और OTP modal खोलें
+            let forgotModalEl = document.getElementById('forgotModal');
+            let forgotModal = bootstrap.Modal.getInstance(forgotModalEl) || new bootstrap.Modal(forgotModalEl);
+            forgotModal.hide();
+            
+            setTimeout(() => {
+                let otpModal = new bootstrap.Modal(document.getElementById('otpModal'));
+                otpModal.show();
+            }, 500);
+        } else {
+            alert("Error: " + data.message);
+        }
+    })
+    .catch(err => alert("Connection Error: " + err))
+    .finally(() => {
+        btnText.classList.remove("d-none");
+        loader.classList.add("d-none");
+    });
+}
+
+// 3. OTP वेरिफिकेशन और पासवर्ड रीसेट
+function handleVerifyAndReset() {
+    const email = document.getElementById("forgot_email").value;
+    const otp = document.getElementById("otp_code").value;
+    const new_pass = document.getElementById("new_pass").value;
+
+    if(!otp || !new_pass) return alert("Please fill all fields.");
+
+    // First: Verify OTP
+    fetch("/verify_otp", { 
+        method: "POST",
+        headers: { 
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": csrfToken 
+        },
+        body: new URLSearchParams({
+            'email': email,
+            'role': 'student',
+            'otp': otp
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            // अगर OTP सही है, तो पासवर्ड अपडेट करें
+            executeFinalReset(email, 'student', new_pass);
+        } else {
+            alert("Verification Failed: " + data.message);
+        }
+    })
+    .catch(err => alert("Error during verification: " + err));
+}
+
+// 4. फाइनल पासवर्ड अपडेट
+function executeFinalReset(email, role, password) {
+    fetch("/reset_password", {
+        method: "POST",
+        headers: { 
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": csrfToken 
+        },
+        body: new URLSearchParams({
+            'email': email,
+            'role': role,
+            'password': password
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            alert("Password updated successfully! Please login with your new password.");
+            window.location.reload();
+        } else {
+            alert("Failed to reset password: " + data.message);
+        }
+    });
+}
+</script>
+
+{% endblock %}

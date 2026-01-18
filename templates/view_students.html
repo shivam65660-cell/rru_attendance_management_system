@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="fw-bold text-primary"><i class="bi bi-people-fill me-2"></i>Manage Students</h3>
+    
+    <!-- 📤 Export Buttons -->
+    <div>
+      <button id="exportExcel" class="btn btn-success me-2">
+        <i class="bi bi-file-earmark-excel-fill me-1"></i> Export Excel
+      </button>
+    </div>
+  </div>
+
+  <!-- 🔍 Search & Filter Bar -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <input type="text" id="searchInput" class="form-control shadow-sm"
+             placeholder="Search by name, roll number, or course...">
+    </div>
+    <div class="col-md-4">
+      <select id="filterSchool" class="form-select shadow-sm">
+        <option value="">Filter by School</option>
+        {% for sch in schools %}
+          <option value="{{ sch.school_name }}">{{ sch.school_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <select id="filterCourse" class="form-select shadow-sm">
+        <option value="">Filter by Course</option>
+        {% for c in courses %}
+          <option value="{{ c.course_name }}">{{ c.course_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <!-- 🧾 Student Table -->
+  <div class="table-responsive shadow-sm rounded-3">
+    <table class="table table-hover align-middle text-center" id="studentTable">
+      <thead class="table-primary">
+        <tr>
+          <th style="width: 60px;">#</th>
+          <th>Name</th>
+          <th>Roll Number</th>
+          <th>School</th>
+          <th>Course</th>
+          <th>Semester</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody class="table-light">
+        {% for s in students %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td class="fw-semibold">{{ s.name }}</td>
+          <td>{{ s.roll_number }}</td>
+          <td>{{ s.school_name }}</td>
+          <td>{{ s.course_name }}</td>
+          <td>{{ s.semester }}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-warning me-1"
+                    data-bs-toggle="modal" data-bs-target="#editModal{{ s.id }}">
+              <i class="bi bi-pencil-square me-1"></i>Edit
+            </button>
+            <a href="{{ url_for('delete_student', id=s.id) }}"
+               class="btn btn-sm btn-outline-danger"
+               onclick="return confirm('Are you sure you want to delete this student?')">
+              <i class="bi bi-trash3 me-1"></i>Delete
+            </a>
+          </td>
+        </tr>
+
+        <!-- Edit Modal -->
+        <div class="modal fade" id="editModal{{ s.id }}" tabindex="-1">
+          <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+              <form method="POST" action="{{ url_for('edit_student', student_id=s.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header bg-primary text-white">
+                  <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Edit Student</h5>
+                  <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="row g-3">
+                    <div class="col-md-6">
+                      <label class="form-label">Name</label>
+                      <input type="text" name="name" value="{{ s.name }}" class="form-control" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Roll Number</label>
+                      <input type="text" name="roll_number" value="{{ s.roll_number }}" class="form-control" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Email</label>
+                      <input type="email" name="email" value="{{ s.email }}" class="form-control" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">School</label>
+                      <select name="school_id" class="form-select school-select" data-student="{{ s.id }}">
+                        <option value="">Select School</option>
+                        {% for sch in schools %}
+                          <option value="{{ sch.id }}" {% if s.school_id == sch.id %}selected{% endif %}>
+                            {{ sch.school_name }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Course</label>
+                      <select name="course_id" class="form-select course-select-{{ s.id }}">
+                        <option value="">Select Course</option>
+                        {% for c in courses if c.school_id == s.school_id %}
+                          <option value="{{ c.id }}" {% if s.course_id == c.id %}selected{% endif %}>
+                            {{ c.course_name }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Semester</label>
+                      <input type="number" name="semester" value="{{ s.semester }}" class="form-control" required>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Password (leave blank to keep current)</label>
+                      <input type="password" name="password" class="form-control">
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-circle"></i> Save
+                  </button>
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 🧠 JS: Filters, Search & Export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const searchInput = document.getElementById("searchInput");
+  const filterSchool = document.getElementById("filterSchool");
+  const filterCourse = document.getElementById("filterCourse");
+  const rows = document.querySelectorAll("#studentTable tbody tr");
+
+  function applyFilters() {
+    const search = searchInput.value.toLowerCase();
+    const school = filterSchool.value.toLowerCase();
+    const course = filterCourse.value.toLowerCase();
+
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const schoolText = row.cells[3].textContent.toLowerCase();
+      const courseText = row.cells[4].textContent.toLowerCase();
+
+      const matchesSearch = text.includes(search);
+      const matchesSchool = !school || schoolText === school;
+      const matchesCourse = !course || courseText === course;
+
+      row.style.display = (matchesSearch && matchesSchool && matchesCourse) ? "" : "none";
+    });
+  }
+
+  [searchInput, filterSchool, filterCourse].forEach(el => {
+    el.addEventListener("input", applyFilters);
+    el.addEventListener("change", applyFilters);
+  });
+
+  // 📤 Export to Excel
+  document.getElementById("exportExcel").addEventListener("click", () => {
+    const wb = XLSX.utils.table_to_book(document.getElementById("studentTable"), { sheet: "Students" });
+    XLSX.writeFile(wb, "students.xlsx");
+  });
+});
+</script>
+{% endblock %}

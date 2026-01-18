@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Register Teacher</h2>
+
+  <form method="POST" class="row g-3 mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Teacher Name -->
+    <div class="col-md-6">
+      <input type="text" name="name" class="form-control" placeholder="Full Name" required>
+    </div>
+
+    <!-- Teacher Email -->
+    <div class="col-md-6">
+      <input type="email" name="email" class="form-control" placeholder="Email" required>
+    </div>
+
+    <!-- Teacher Password -->
+    <div class="col-md-6">
+      <input type="password" name="password" class="form-control" placeholder="Password" required>
+    </div>
+
+    <!-- Select School -->
+    <div class="col-md-6">
+      <select name="school_id" class="form-control" required>
+        <option value="">Select School</option>
+        {% for s in schools %}
+        <option value="{{ s.id }}">{{ s.school_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Select Course -->
+    <!-- <div class="col-md-6">
+      <select name="course_id" class="form-control" required>
+        <option value="">Select Course</option>
+        {% for c in courses %}
+        <option value="{{ c.id }}">{{ c.course_name }}</option>
+        {% endfor %}
+      </select>
+    </div>    -->
+
+    <div class="col-12">
+      <button class="btn btn-success">Register Teacher</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

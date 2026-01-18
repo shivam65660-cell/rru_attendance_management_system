@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-5">
+  <h2 class="mb-4 text-center">Register</h2>
+  <form method="POST" action="/register" class="mx-auto" style="max-width: 500px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <!-- Name -->
+    <div class="mb-3">
+      <label for="name" class="form-label">Name</label>
+      <input type="text" class="form-control" name="name" id="name" required>
+    </div>
+
+    <!-- Email -->
+    <div class="mb-3">
+      <label for="email" class="form-label">Email</label>
+      <input type="email" class="form-control" name="email" id="email" required>
+    </div>
+
+    <!-- Password -->
+    <div class="mb-3">
+      <label for="password" class="form-label">Password</label>
+      <input type="password" class="form-control" name="password" id="password" required>
+    </div>
+
+    <!-- Role -->
+    <div class="mb-3">
+      <label for="roleSelect" class="form-label">Role</label>
+      <select name="role" id="roleSelect" class="form-select" onchange="toggleRoleFields()" required>
+        <option value="student">Student</option>
+        <option value="teacher">Teacher</option>
+      </select>
+    </div>
+
+    <!-- Student Fields -->
+    <div id="studentFields">
+      <!-- Course Dropdown -->
+      <div class="mb-3">
+        <label for="course_id" class="form-label">Course</label>
+        <select name="course_id" id="course_id" class="form-select" required>
+          {% for course in courses %}
+            <option value="{{ course.id }}">{{ course.course_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Semester Dropdown -->
+      <div class="mb-3">
+        <label for="semester" class="form-label">Semester</label>
+        <select name="semester" id="semester" class="form-select" required>
+          <option value="">-- Select Semester --</option>
+          {% for i in range(1, 11) %}
+            <option value="{{ i }}">Semester {{ i }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Roll Number -->
+      <div class="mb-3">
+        <label for="roll_number" class="form-label">Roll Number</label>
+        <input type="text" class="form-control" name="roll_number" id="roll_number" required>
+      </div>
+    </div>
+
+    <!-- Teacher Department -->
+    <div class="mb-3" id="teacherField" style="display: none;">
+      <label for="department" class="form-label">Department / school / course</label>
+      <input type="text" class="form-control" name="department" id="department">
+    </div>
+
+    <!-- Submit -->
+    <button type="submit" class="btn btn-primary w-100">Register</button>
+  </form>
+</div>
+
+<!-- JavaScript to show/hide fields based on role -->
+<script>
+  function toggleRoleFields() {
+    const role = document.getElementById("roleSelect").value;
+    const studentFields = document.getElementById("studentFields");
+    const teacherField = document.getElementById("teacherField");
+
+    if (role === "student") {
+      studentFields.style.display = "block";
+      teacherField.style.display = "none";
+
+      // Required fields
+      document.getElementById("course_id").required = true;
+      document.getElementById("semester").required = true;
+      document.getElementById("roll_number").required = true;
+      document.getElementById("department").required = false;
+
+    } else {
+      studentFields.style.display = "none";
+      teacherField.style.display = "block";
+
+      // Required fields
+      document.getElementById("course_id").required = false;
+      document.getElementById("semester").required = false;
+      document.getElementById("roll_number").required = false;
+      document.getElementById("department").required = true;
+    }
+  }
+
+  // Run on page load also
+  window.onload = toggleRoleFields;
+</script>
+{% endblock %}

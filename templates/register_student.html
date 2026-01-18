@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-5">
+  <h2>Register Student</h2>
+  <form method="POST">
+     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- Student Name -->
+    <div class="form-group mb-3">
+      <label for="name">Name</label>
+      <input type="text" class="form-control" name="name" required>
+    </div>
+
+    <!-- Email -->
+    <div class="form-group mb-3">
+      <label for="email">Email</label>
+      <input type="email" class="form-control" name="email" required>
+    </div>
+
+    <!-- Password -->
+    <div class="form-group mb-3">
+      <label for="password">Password</label>
+      <input type="password" class="form-control" name="password" required>
+    </div>
+
+    <!-- Select School -->
+    <div class="form-group mb-3">
+      <label for="school_id">Select School</label>
+      <select name="school_id" id="school_id" class="form-control" required>
+        <option value="">-- Select School --</option>
+        {% for school in schools %}
+          <option value="{{ school.id }}">{{ school.school_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Select Course (Dynamic by School) -->
+    <div class="form-group mb-3">
+      <label for="course_id">Select Course</label>
+      <select name="course_id" id="course_id" class="form-control" required>
+        <option value="">-- Select Course --</option>
+      </select>
+    </div>
+
+    <!-- Semester -->
+    <div class="form-group mb-3">
+      <label for="semester">Semester</label>
+      <select name="semester" id="semester" class="form-control" required>
+       <option value="">Choose...</option>
+        {% for i in range(1, 11) %}
+        <option value="{{ i }}">Semester {{ i }}</option>
+        {% endfor %}
+      </select>
+      <div class="invalid-feedback">Please select a semester.</div>
+    </div>
+
+    <!-- Roll Number -->
+    <div class="form-group mb-3">
+      <label for="roll_number">Roll Number</label>
+      <input type="text" class="form-control" name="roll_number" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Register</button>
+  </form>
+</div>
+
+<script>
+  // जब school बदले तो उसके courses लोड हों
+  document.getElementById("school_id").addEventListener("change", function () {
+    const schoolId = this.value;
+    const courseDropdown = document.getElementById("course_id");
+    courseDropdown.innerHTML = '<option value="">-- Loading... --</option>';
+
+    if (schoolId) {
+      fetch(`/get_courses/${schoolId}`)
+        .then(response => response.json())
+        .then(data => {
+          courseDropdown.innerHTML = '<option value="">-- Select Course --</option>';
+          data.forEach(course => {
+            courseDropdown.innerHTML += `<option value="${course.id}">${course.course_name}</option>`;
+          });
+        });
+    } else {
+      courseDropdown.innerHTML = '<option value="">-- Select Course --</option>';
+    }
+  });
+</script>
+{% endblock %}

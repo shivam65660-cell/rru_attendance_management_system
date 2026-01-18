@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-5">
+
+  <!-- Welcome Section -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2>Welcome, {{ admin_username }}</h2>
+      <p class="text-muted">This is the Admin Dashboard.</p>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn btn-danger">Logout</a>
+  </div>
+
+  <!-- Admin Actions -->
+  <div class="row">
+    <!-- Manage Schools -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-building-fill fs-1 text-primary"></i>
+          <h5 class="card-title mt-3">Manage Schools</h5>
+          <p class="card-text">Add, edit, or delete schools.</p>
+          <a href="{{ url_for('manage_schools') }}" class="btn btn-outline-primary">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Courses -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-book-fill fs-1 text-success"></i>
+          <h5 class="card-title mt-3">Manage Courses</h5>
+          <p class="card-text">Handle courses for all schools.</p>
+          <a href="{{ url_for('manage_courses') }}" class="btn btn-outline-success">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Subjects -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-journal-text fs-1 text-purple"></i>
+          <h5 class="card-title mt-3">Manage Subjects</h5>
+          <p class="card-text">Add, edit, or delete subjects for courses.</p>
+          <a href="{{ url_for('manage_subjects') }}" class="btn btn-outline-primary">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Register Student -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-person-plus-fill fs-1 text-info"></i>
+          <h5 class="card-title mt-3">Register Student</h5>
+          <p class="card-text">Add new students with details.</p>
+          <a href="{{ url_for('register_student') }}" class="btn btn-outline-info">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Register Teacher -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-person-badge-fill fs-1 text-warning"></i>
+          <h5 class="card-title mt-3">Register Teacher</h5>
+          <p class="card-text">Add new teachers to the system.</p>
+          <a href="{{ url_for('register_teacher') }}" class="btn btn-outline-warning">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- View Students -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-people-fill fs-1 text-danger"></i>
+          <h5 class="card-title mt-3">View Students</h5>
+          <p class="card-text">Check and manage all registered students.</p>
+          <a href="{{ url_for('view_students') }}" class="btn btn-outline-danger">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- View Teachers -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-person-lines-fill fs-1 text-dark"></i>
+          <h5 class="card-title mt-3">View Teachers</h5>
+          <p class="card-text">Check and manage all registered teachers.</p>
+          <a href="{{ url_for('view_teachers') }}" class="btn btn-outline-dark">Go</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Teachers -->
+    <div class="col-md-4 mb-3">
+      <div class="card shadow-sm h-100 text-center">
+        <div class="card-body">
+          <i class="bi bi-person-gear fs-1 text-secondary"></i>
+          <h5 class="card-title mt-3">Manage Teachers</h5>
+          <p class="card-text">Edit or remove teacher details.</p>
+          <a href="{{ url_for('manage_teachers') }}" class="btn btn-outline-secondary">Go</a>
+        </div>
+      </div>
+    </div>
+
+
+  <!-- Manage Staff -->
+<div class="col-md-4 mb-3">
+  <div class="card shadow-sm h-100 text-center">
+    <div class="card-body">
+      <i class="bi bi-person-vcard-fill fs-1 text-success"></i>
+      <h5 class="card-title mt-3">Manage Staff</h5>
+      <p class="card-text">Add, edit, or remove staff and assign schools.</p>
+      <a href="{{ url_for('manage_staff') }}" class="btn btn-outline-success">Go</a>
+    </div>
+  </div>
+</div>
+
+<!-- Attendance Management -->
+<div class="col-md-4 mb-3">
+  <div class="card shadow-sm h-100 text-center">
+    <div class="card-body">
+      <i class="bi bi-clipboard-check-fill fs-1 text-primary"></i>
+      <h5 class="card-title mt-3">Attendance Management</h5>
+      <p class="card-text">View, filter, and edit student attendance records.</p>
+      <a href="{{ url_for('admin_attendance') }}" class="btn btn-outline-primary">Go</a>
+    </div>
+  </div>
+</div>
+
+ </div>
+</div>
+
+<!-- Bootstrap Icons CDN -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+{% endblock %}

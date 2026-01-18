@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: rru-attendance-system
+    env: docker
+    region: singapore
+    plan: free
+    healthCheckPath: /

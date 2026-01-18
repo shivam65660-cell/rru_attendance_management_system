@@ -1,0 +1,10 @@
+Flask==2.3.3
+flask-session
+flask-mail
+flask-talisman
+flask-wtf
+flask-limiter
+werkzeug
+python-dotenv
+requests
+gunicorn

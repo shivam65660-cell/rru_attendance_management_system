@@ -1,0 +1,157 @@
+/* 🌟 Global Page Setup */
+body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f5f6fa;
+    color: #0c0c0c;
+}
+
+/* 🌟 Navbar Fix */
+.navbar {
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+}
+.navbar-brand {
+    display: flex;
+    align-items: center;
+}
+.navbar-brand img {
+    height: 70px;
+    margin-right: 10px;
+}
+.navbar-brand h1 {
+    color: #00bfff;
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0;
+}
+.navbar-brand p {
+    color: #3c92ed;
+    font-size: 0.9rem;
+    margin: 0;
+}
+.nav-link {
+    color: #2459d7 !important;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.nav-link:hover {
+    color: #ffcc00 !important;
+    text-decoration: underline;
+}
+/* Home Header Styling */
+.home-header {
+    text-align: center;
+    background-color: #d8e0ea;
+    border-radius: 10px;
+    padding: 25px 10px;
+    margin-top: 15px;  /* maintain small clean gap below navbar */
+    margin-bottom: 15px;
+}
+
+/* Rashtriya Raksha University Heading */
+.home-header h1 {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: #0078d4;
+    margin-bottom: 8px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Welcome Line */
+.home-header h2 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: rgb(100, 0, 180);
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Image Section */
+.image-section {
+    display: flex;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.image-section img {
+    width: 90%;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+/* Dropdown Badge */
+.user-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 6px;
+    padding: 2px 5px;
+    border-radius: 6px;
+}
+.dropdown-menu {
+    font-size: 0.9rem;
+    border-radius: 8px;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 🌟 Hero Section (Home Page) */
+.hero {
+    background-color: #cdd6de;
+    padding: 25px 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: rgb(87, 10, 160);
+    text-shadow: 1px 1px 2px rgb(239, 74, 74);
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 0 auto 10px auto !important;
+    border-radius: 8px;
+    max-width: 90%;
+}
+
+/* 🌟 Content Section */
+.container {
+    padding: 20px 10px;
+}
+.container h2 {
+    color: #014364;
+    font-weight: 700;
+}
+.container p {
+    font-size: 1.05rem;
+    color: #333;
+}
+
+/* 🌟 Footer */
+footer {
+    background: #003366;
+    color: rgb(251, 247, 247);
+    text-align: center;
+    padding: 12px;
+    margin-top: 40px;
+}
+
+/* 🌟 Carousel & Images */
+.carousel {
+    margin-bottom: 20px;
+}
+.carousel img {
+    border-radius: 8px;
+}
+
+/* 🌟 Responsive Design */
+@media (max-width: 768px) {
+    .navbar-brand img {
+        height: 60px;
+    }
+    .navbar-brand h1 {
+        font-size: 1.2rem;
+    }
+    .navbar-brand p {
+        font-size: 0.75rem;
+    }
+    .hero {
+        font-size: 1.4rem;
+        padding: 5px;
+    }
+}

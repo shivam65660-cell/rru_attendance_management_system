@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-5">
+  <div class="card shadow-lg border-0">
+    <div class="card-body">
+      <h2 class="card-title mb-4 text-primary">Manage Schools</h2>
+
+      <!-- Add School Form -->
+      <form method="POST" action="{{ url_for('add_school') }}" class="row g-3 mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-9">
+          <input type="text" name="school_name" class="form-control" placeholder="Enter school name" required>
+        </div>
+        <div class="col-md-3 d-grid">
+          <button class="btn btn-primary">Add School</button>
+        </div>
+      </form>
+
+      <!-- Schools Table -->
+      <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle">
+          <thead class="table-primary">
+            <tr>
+              <th scope="col">#</th>
+              <th scope="col">School Name</th>
+              <th scope="col" class="text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in schools %}
+            <tr>
+              <td>{{ s.id }}</td>
+              <td>{{ s.school_name }}</td>
+              <td class="text-center">
+                <a href="{{ url_for('delete_school', id=s.id) }}" class="btn btn-sm btn-danger">
+                  <i class="bi bi-trash"></i> Delete
+                </a>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="3" class="text-center text-muted">No schools added yet</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
