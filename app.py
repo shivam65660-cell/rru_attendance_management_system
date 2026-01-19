@@ -497,7 +497,7 @@ def login():
 # ✅ Get the recaptcha response from form
         recaptcha_response = request.form.get("g-recaptcha-response")
  # ✅ Verify reCAPTCHA
-        secret_key = "6Ldeof4rAAAAANpTDMAWtYyNOA-4-btMWYr9MaK-"  
+        secret_key = "6Ldeof4rAAAAAFWYXaGiW78kvOF90At6bb0k_p22"  
         verify_url = "https://www.google.com/recaptcha/api/siteverify"
         payload = {"secret": secret_key, "response": recaptcha_response}
         response = requests.post(verify_url, data=payload)
