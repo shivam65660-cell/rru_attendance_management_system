@@ -11,6 +11,7 @@ import csv, io, sqlite3
 import os
 import smtplib
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import send_from_directory
 import secrets, hashlib, smtplib, datetime
 from email.message import EmailMessage
@@ -36,6 +37,7 @@ from flask import session, redirect, url_for, flash
 load_dotenv() 
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # ✅ Step (Session Config)
 os.environ.get('FLASK_SECRET_KEY') or 'dev-fallback-secret-5f2a1d9b8a37c47c2d9e47b173f1a8af' 
@@ -51,7 +53,7 @@ Session(app)
 app.config.update(
     SESSION_COOKIE_SECURE=True,     # only send cookies over HTTPS
     SESSION_COOKIE_HTTPONLY=True,   # not accessible from JS
-    SESSION_COOKIE_SAMESITE='Lax'   # prevents cross-site cookie leakage
+    SESSION_COOKIE_SAMESITE='None'   # prevents cross-site cookie leakage #Lax tha pahle
 )
 # ✅ Step (Rate Limiting Config)
 limiter = Limiter(
@@ -64,8 +66,8 @@ limiter = Limiter(
 app.config.update({
     "MAIL_SERVER": "smtp.gmail.com",
     "MAIL_PORT": 587,
-   "MAIL_USERNAME": os.environ.get('MAIL_USERNAME', 'your-email@gmail.com'),
-    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', 'your-app-password'),
+   "MAIL_USERNAME": os.environ.get('MAIL_USERNAME', '25mscup022@student.rru.ac.in'),
+    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', '@Shivam9839'),
     "MAIL_USE_TLS": True,
     "MAIL_USE_SSL": False,
     "OTP_EXPIRY_MINUTES": 10,
