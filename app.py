@@ -68,7 +68,7 @@ app.config.update({
     "MAIL_SERVER": "smtp.gmail.com",
     "MAIL_PORT": 587,
    "MAIL_USERNAME": os.environ.get('MAIL_USERNAME', '25mscup022@student.rru.ac.in'),
-    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', 'xxxx'),
+    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', 'YOUR_EMAIL_APP_PASSWORD'),
     "MAIL_USE_TLS": True,
     "MAIL_USE_SSL": False,
     "OTP_EXPIRY_MINUTES": 10,
@@ -743,7 +743,7 @@ def admin_login():
         # ✅ Verify reCAPTCHA
         verify_url = "https://www.google.com/recaptcha/api/siteverify"
         res = requests.post(verify_url, data={
-            'secret': '6LcNqP4rAAAAADYxce-x4h71kSItSzMUuuvYI3Nd', 
+            'secret': '6Ldeof4rAAAAAFWYXaGiW78kvOF90At6bb0k_p22', 
             'response': recaptcha_response
         }).json()
 
@@ -2821,4 +2821,4 @@ if __name__ == "__main__":
     # app.run(host='0.0.0.0', port=5000)
 # ---------- Run ----------
 #if __name__ == "__main__":
-    app.run(debug=True)
+#    app.run(debug=True)
