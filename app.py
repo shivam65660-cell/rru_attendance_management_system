@@ -67,13 +67,13 @@ app.config.update({
     "MAIL_SERVER": "smtp.gmail.com",
     "MAIL_PORT": 587,
    "MAIL_USERNAME": os.environ.get('MAIL_USERNAME', '25mscup022@student.rru.ac.in'),
-    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', '@Shivam9839'),
+    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', 'xxxx'),
     "MAIL_USE_TLS": True,
     "MAIL_USE_SSL": False,
     "OTP_EXPIRY_MINUTES": 10,
     "MAX_OTP_SENDS_PER_HOUR": 3,
     "MAX_OTP_VERIFY_ATTEMPTS": 5,
-    "RECAPTCHA_SECRET_KEY": os.environ.get("RECAPTCHA_SECRET_KEY", "6LcNqP4rAAAAADYxce-x4h71kSItSzMUuuvYI3Nd"),
+    "RECAPTCHA_SECRET_KEY": os.environ.get("RECAPTCHA_SECRET_KEY", "6Ldeof4rAAAAAFWYXaGiW78kvOF90At6bb0k_p22"),
 })
 
 # Talisman(app, content_security_policy=None, force_https=False) # Development के लिए False, Production में True करें
@@ -496,7 +496,7 @@ def login():
 # ✅ Get the recaptcha response from form
         recaptcha_response = request.form.get("g-recaptcha-response")
  # ✅ Verify reCAPTCHA
-        secret_key = "6LcNqP4rAAAAADYxce-x4h71kSItSzMUuuvYI3Nd"  
+        secret_key = "6Ldeof4rAAAAANpTDMAWtYyNOA-4-btMWYr9MaK-"  
         verify_url = "https://www.google.com/recaptcha/api/siteverify"
         payload = {"secret": secret_key, "response": recaptcha_response}
         response = requests.post(verify_url, data=payload)
