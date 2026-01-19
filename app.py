@@ -42,18 +42,19 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 # ✅ Step (Session Config)
 os.environ.get('FLASK_SECRET_KEY') or 'dev-fallback-secret-5f2a1d9b8a37c47c2d9e47b173f1a8af' 
 app.secret_key = '5f2a1d9b8a37c47c2d9e47b173f1a8af'
-app.config['SESSION_TYPE'] = 'filesystem'
+#app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True 
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = True
-app.config['SESSION_FILE_DIR'] = './.flask_session/'
-Session(app)
+#app.config['SESSION_FILE_DIR'] = './.flask_session/'
+#Session(app)
 
 app.config.update(
     SESSION_COOKIE_SECURE=True,     # only send cookies over HTTPS
     SESSION_COOKIE_HTTPONLY=True,   # not accessible from JS
-    SESSION_COOKIE_SAMESITE='None'   # prevents cross-site cookie leakage #Lax tha pahle
+    SESSION_COOKIE_SAMESITE='Lax' ,  # prevents cross-site cookie leakage #Lax tha pahle
+    PERMANENT_SESSION_LIFETIME=600  # 10 minutes
 )
 # ✅ Step (Rate Limiting Config)
 limiter = Limiter(
