@@ -10,3 +10,5 @@ requests
 flask
 gunicorn
 stripe
+psycopg2-binary
+flask-sqlalchemy

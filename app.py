@@ -28,6 +28,8 @@ from flask import abort, request
 import re
 from functools import wraps
 from flask import session, redirect, url_for, flash
+import psycopg2
+from psycopg2.extras import RealDictCursor
 # from flask_limiter.util import exempt
  # CSP configure करें production में
 #from flask_socketio import SocketIO, emit
@@ -118,18 +120,18 @@ def send_otp():
 
     if not email:
         return jsonify({'status':'error', 'message':'Email required'}), 400
-
+# database check
     conn = get_db_connection()
     cur = conn.cursor()
     # parameterized query -> SQL injection safe
-    cur.execute(f"SELECT id, email FROM {table} WHERE email = ?", (email,))
+    cur.execute(f"SELECT id, email FROM {table} WHERE email = %s", (email,))
     row = cur.fetchone()
     if not row:
         conn.close()
         return jsonify({'status':'error', 'message':'Email not found for this role'}), 404
 
     # Rate-limit: agar already active OTP hai (expiry in future), deny short requests
-    cur.execute(f"SELECT otp_expiry FROM {table} WHERE email = ?", (email,))
+    cur.execute(f"SELECT otp_expiry FROM {table} WHERE email = %s", (email,))
     r = cur.fetchone()
     if r and r.get('otp_expiry'):
         try:
@@ -145,7 +147,7 @@ def send_otp():
     expiry_time = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
     # Save to DB
-    cur.execute(f"UPDATE {table} SET otp_hash = ?, otp_expiry = ? WHERE email = ?", (otp_hash, expiry_time, email))
+    cur.execute(f"UPDATE {table} SET otp_hash = %s, otp_expiry = %s WHERE email = %s", (otp_hash, expiry_time, email))
     conn.commit()
     conn.close()
 
@@ -168,7 +170,7 @@ def verify_otp():
     otp = request.form.get("otp")
 
     conn = get_db_connection()
-    user = conn.execute(f"SELECT * FROM {role}s WHERE email=?", (email,)).fetchone()
+    user = conn.execute(f"SELECT * FROM {role}s WHERE email=%s", (email,)).fetchone()
 
     if not user or not user["otp_hash"]:
         return jsonify({"status": "error", "message": "Invalid request"})
@@ -192,7 +194,7 @@ def reset_password():
     conn = get_db_connection()
     hashed_pw = generate_password_hash(new_password)
 
-    conn.execute(f"UPDATE {role}s SET password=?, otp_hash=NULL, otp_expiry=NULL WHERE email=?", (hashed_pw, email))
+    conn.execute(f"UPDATE {role}s SET password=%s, otp_hash=NULL, otp_expiry=NULL WHERE email=%s", (hashed_pw, email))
     conn.commit()
     conn.close()
 
@@ -236,10 +238,24 @@ def table_for_role(role):
    # return response
 
 # ---------- DB helper ----------
+#def get_db_connection():
+    #conn = sqlite3.connect("rru.db")
+    #conn.row_factory = sqlite3.Row
+    #return conn
+    
 def get_db_connection():
-    conn = sqlite3.connect("rru.db")
-    conn.row_factory = sqlite3.Row
-    return conn
+    db_url = os.environ.get('DATABASE_URL') # Vercel variable
+    
+    if db_url:
+        # 🟢 Cloud PostgreSQL (Production)
+        conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+        return conn
+    else:
+        # 🟡 Local SQLite (Development)
+        import sqlite3
+        conn = sqlite3.connect("rru.db")
+        conn.row_factory = sqlite3.Row
+        return conn
 
 # ---------- Basic Security Middleware ----------
 SQL_PATTERN = re.compile(r"\b(union|drop|delete|insert|update)\b", re.IGNORECASE)
@@ -382,18 +398,18 @@ def record_failed_login(conn, email, role):
     now = datetime.utcnow().isoformat()
 
     # पहले check करें कि entry पहले से है या नहीं
-    row = conn.execute("SELECT attempts FROM failed_logins WHERE user_email=? AND role=?", (email, role)).fetchone()
+    row = conn.execute("SELECT attempts FROM failed_logins WHERE user_email=%s AND role=%s", (email, role)).fetchone()
 
     if row:
         # अगर पहले से मौजूद है तो attempts बढ़ाओ और last_attempt अपडेट करो
         conn.execute(
-            "UPDATE failed_logins SET attempts = attempts + 1, last_attempt=? WHERE user_email=? AND role=?",
+            "UPDATE failed_logins SET attempts = attempts + 1, last_attempt=%s WHERE user_email=%s AND role=%s",
             (now, email, role)
         )
     else:
         # पहली बार असफल प्रयास
         conn.execute(
-            "INSERT INTO failed_logins (user_email, role, attempts, last_attempt) VALUES (?, ?, ?, ?)",
+            "INSERT INTO failed_logins (user_email, role, attempts, last_attempt) VALUES (%s, %s, %s, %s)",
             (email, role, 1, now)
         )
 
@@ -401,7 +417,7 @@ def record_failed_login(conn, email, role):
 
 # reset on successful login
 def reset_failed_login(conn, email, role):
-    conn.execute("DELETE FROM failed_logins WHERE user_email=? AND role=?", (email, role))
+    conn.execute("DELETE FROM failed_logins WHERE user_email=%s AND role=%s", (email, role))
     conn.commit()
 # check if account is locked
 
@@ -410,7 +426,7 @@ from datetime import datetime, timedelta, timezone
 # check if account is locked
 def check_account_lock(conn, email, role):
     row = conn.execute(
-        "SELECT attempts, last_attempt, locked_until FROM failed_logins WHERE user_email=? AND role=?",
+        "SELECT attempts, last_attempt, locked_until FROM failed_logins WHERE user_email=%s AND role=%s",
         (email, role)
     ).fetchone()
 
@@ -425,7 +441,7 @@ def check_account_lock(conn, email, role):
         else:
             # ⏱ Lock expired → reset
             conn.execute(
-                "UPDATE failed_logins SET attempts=0, locked_until=NULL WHERE user_email=? AND role=?",
+                "UPDATE failed_logins SET attempts=0, locked_until=NULL WHERE user_email=%s AND role=%s",
                 (email, role),
             )
             conn.commit()
@@ -435,7 +451,7 @@ def check_account_lock(conn, email, role):
     if row["attempts"] >= MAX_FAILED:
         locked_until = (datetime.now(timezone.utc) + timedelta(minutes=LOCK_MINUTES)).isoformat()
         conn.execute(
-            "UPDATE failed_logins SET locked_until=? WHERE user_email=? AND role=?",
+            "UPDATE failed_logins SET locked_until=%s WHERE user_email=%s AND role=%s",
             (locked_until, email, role),
         )
         conn.commit()
@@ -447,7 +463,7 @@ def check_account_lock(conn, email, role):
 def check_lockout(username, role):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT attempts, locked_until FROM failed_logins WHERE user_email=? AND role=?",
+        "SELECT attempts, locked_until FROM failed_logins WHERE user_email=%s AND role=%s",
         (username, role)
     ).fetchone()
     conn.close()
@@ -464,7 +480,7 @@ def check_lockout(username, role):
             # ⏱ Lock expired → reset
             conn = get_db_connection()
             conn.execute(
-                "UPDATE failed_logins SET attempts=0, locked_until=NULL WHERE user_email=? AND role=?",
+                "UPDATE failed_logins SET attempts=0, locked_until=NULL WHERE user_email=%s AND role=%s",
                 (username, role),
             )
             conn.commit()
@@ -476,7 +492,7 @@ def check_lockout(username, role):
         locked_until = datetime.now(timezone.utc) + timedelta(minutes=LOCK_MINUTES)
         conn = get_db_connection()
         conn.execute(
-            "UPDATE failed_logins SET locked_until=? WHERE user_email=? AND role=?",
+            "UPDATE failed_logins SET locked_until=%s WHERE user_email=%s AND role=%s",
             (locked_until.isoformat(), username, role),
         )
         conn.commit()
@@ -523,11 +539,11 @@ def login():
 
         # Parameterized queries (no string interpolation)
         if role == "student":
-            user = conn.execute("SELECT * FROM students WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT * FROM students WHERE email = %s", (email,)).fetchone()
         elif role == "teacher":
-            user = conn.execute("SELECT * FROM teachers WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT * FROM teachers WHERE email = %s", (email,)).fetchone()
         elif role == "staff":
-            user = conn.execute("SELECT * FROM staff WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT * FROM staff WHERE email = %s", (email,)).fetchone()
         else:
             user = None
 
@@ -578,13 +594,13 @@ def forgot_password():
         # find user by role
         conn = get_db_connection()
         if role == "student":
-            user = conn.execute("SELECT id, email, name FROM students WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT id, email, name FROM students WHERE email = %s", (email,)).fetchone()
         elif role == "teacher":
-            user = conn.execute("SELECT id, email, name FROM teachers WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT id, email, name FROM teachers WHERE email = %s", (email,)).fetchone()
         elif role == "staff":
-            user = conn.execute("SELECT id, email, name FROM staff WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT id, email, name FROM staff WHERE email = %s", (email,)).fetchone()
         elif role == "admin":
-            user = conn.execute("SELECT id, email, name FROM admin WHERE email = ?", (email,)).fetchone()
+            user = conn.execute("SELECT id, email, name FROM admin WHERE email = %s", (email,)).fetchone()
         else:
             user = None
 
@@ -599,7 +615,7 @@ def forgot_password():
         one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
         recent_sends = conn.execute("""
             SELECT count(*) as cnt FROM password_resets
-            WHERE user_id=? AND role=? AND created_at >= ?
+            WHERE user_id=%s AND role=%s AND created_at >= %s
         """, (user_id, role, one_hour_ago)).fetchone()["cnt"]
         if recent_sends >= app.config.get("MAX_OTP_SENDS_PER_HOUR", 3):
             flash("आप बहुत जल्दी OTP माँग रहे हैं — कृपया थोड़ी देर बाद प्रयास करें।", "warning")
@@ -612,10 +628,10 @@ def forgot_password():
         expires_at = (datetime.utcnow() + timedelta(minutes=app.config.get("OTP_EXPIRY_MINUTES", 10))).isoformat()
 
         # upsert: existing row replace
-        conn.execute("DELETE FROM password_resets WHERE user_id=? AND role=?", (user_id, role))
+        conn.execute("DELETE FROM password_resets WHERE user_id=%s AND role=%s", (user_id, role))
         conn.execute("""
             INSERT INTO password_resets (user_id, role, otp_hash, expires_at, attempts, created_at)
-            VALUES (?, ?, ?, ?, 0, ?)
+            VALUES (%s, %s, %s, %s, 0, %s)
         """, (user_id, role, otp_hash, expires_at, datetime.utcnow().isoformat()))
         conn.commit()
         conn.close()
@@ -649,7 +665,7 @@ def verify_otp_page():
             return redirect(url_for("verify_otp_page", role=role, user_id=user_id))
 
         conn = get_db_connection()
-        row = conn.execute("SELECT * FROM password_resets WHERE user_id=? AND role=?", (user_id, role)).fetchone()
+        row = conn.execute("SELECT * FROM password_resets WHERE user_id=%s AND role=%s", (user_id, role)).fetchone()
         if not row:
             flash("कोई OTP अनुरोध रिकॉर्ड नहीं मिला या पहले ही उपयोग हो चुका है।", "danger")
             conn.close()
@@ -657,7 +673,7 @@ def verify_otp_page():
 
         # check expiry
         if datetime.fromisoformat(row["expires_at"]) < datetime.utcnow():
-            conn.execute("DELETE FROM password_resets WHERE id=?", (row["id"],))
+            conn.execute("DELETE FROM password_resets WHERE id=%s", (row["id"],))
             conn.commit()
             conn.close()
             flash("OTP की समय सीमा समाप्त हो चुकी है। फिर से अनुरोध करें।", "danger")
@@ -665,7 +681,7 @@ def verify_otp_page():
 
         # attempts limit
         if row["attempts"] >= app.config.get("MAX_OTP_VERIFY_ATTEMPTS", 5):
-            conn.execute("DELETE FROM password_resets WHERE id=?", (row["id"],))
+            conn.execute("DELETE FROM password_resets WHERE id=%s", (row["id"],))
             conn.commit()
             conn.close()
             flash("आपने अधिकतम बार OTP डाल दिया है। फिर से प्रयास करें।", "danger")
@@ -673,7 +689,7 @@ def verify_otp_page():
 
         # verify hash
         if _hash_otp(otp, app.config["SECRET_KEY"]) != row["otp_hash"]:
-            conn.execute("UPDATE password_resets SET attempts = attempts + 1 WHERE id = ?", (row["id"],))
+            conn.execute("UPDATE password_resets SET attempts = attempts + 1 WHERE id = %s", (row["id"],))
             conn.commit()
             conn.close()
             flash("गलत OTP। कृपया फिर प्रयास करें।", "danger")
@@ -682,20 +698,20 @@ def verify_otp_page():
         # success -> update password in correct table
         hashed_pw = generate_password_hash(new_password)
         if role == "student":
-            conn.execute("UPDATE students SET password = ? WHERE id = ?", (hashed_pw, user_id))
+            conn.execute("UPDATE students SET password = %s WHERE id = %s", (hashed_pw, user_id))
         elif role == "teacher":
-            conn.execute("UPDATE teachers SET password = ? WHERE id = ?", (hashed_pw, user_id))
+            conn.execute("UPDATE teachers SET password = %s WHERE id = %s", (hashed_pw, user_id))
         elif role == "staff":
-            conn.execute("UPDATE staff SET password = ? WHERE id = ?", (hashed_pw, user_id))
+            conn.execute("UPDATE staff SET password = %s WHERE id = %s", (hashed_pw, user_id))
         elif role == "admin":
-            conn.execute("UPDATE admin SET password = ? WHERE id = ?", (hashed_pw, user_id))
+            conn.execute("UPDATE admin SET password = %s WHERE id = %s", (hashed_pw, user_id))
         else:
             conn.close()
             flash("Unknown role", "danger")
             return redirect(url_for("forgot_password"))
 
         # remove reset record
-        conn.execute("DELETE FROM password_resets WHERE id = ?", (row["id"],))
+        conn.execute("DELETE FROM password_resets WHERE id = %s", (row["id"],))
         conn.commit()
         conn.close()
 
@@ -759,7 +775,7 @@ def admin_login():
 
         conn = sqlite3.connect("rru.db")
         cur = conn.cursor()
-        cur.execute("SELECT * FROM admins WHERE username=?", (username,))
+        cur.execute("SELECT * FROM admins WHERE username=%s", (username,))
         admin = cur.fetchone() 
         conn.close()
 
@@ -812,7 +828,7 @@ def add_school():
     school_name = request.form["school_name"]
     conn = get_db_connection()
     try:
-        conn.execute("INSERT INTO schools (school_name) VALUES (?)", (school_name,))
+        conn.execute("INSERT INTO schools (school_name) VALUES (%s)", (school_name,))
         conn.commit()
         flash("School added!", "success")
     except sqlite3.IntegrityError:
@@ -826,7 +842,7 @@ def delete_school(id):
     if session.get("role") != "admin":
         return redirect(url_for("login"))
     conn = get_db_connection()
-    conn.execute("DELETE FROM schools WHERE id=?", (id,))
+    conn.execute("DELETE FROM schools WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     flash("Student deleted successfully", "info")
@@ -847,7 +863,7 @@ def manage_courses():
 
         # पहले से exist check
         existing = conn.execute(
-            "SELECT * FROM courses WHERE course_name=? AND school_id=?",
+            "SELECT * FROM courses WHERE course_name=%s AND school_id=%s",
             (course_name, school_id)
         ).fetchone()
 
@@ -857,7 +873,7 @@ def manage_courses():
             return redirect(url_for('manage_courses'))
         else:
             conn.execute(
-                "INSERT INTO courses (course_name, school_id) VALUES (?, ?)",
+                "INSERT INTO courses (course_name, school_id) VALUES (%s, %s)",
                 (course_name, school_id)
             )
             conn.commit()
@@ -888,7 +904,7 @@ def manage_subjects():
 
         # Duplicate check (same course, semester, subject)
         existing = conn.execute("""
-            SELECT * FROM subjects WHERE course_id = ? AND semester = ? AND subject_name = ?
+            SELECT * FROM subjects WHERE course_id = %s AND semester = %s AND subject_name = %s
         """, (course_id, semester, subject_name)).fetchone()
 
         if existing:
@@ -896,7 +912,7 @@ def manage_subjects():
         else:
             conn.execute("""
                 INSERT INTO subjects (subject_name, course_id, semester)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
             """, (subject_name, course_id, semester))
             conn.commit()
             flash('Operation successful!', 'success')
@@ -917,7 +933,7 @@ def manage_subjects():
 @app.route('/admin/delete_subject/<int:id>')
 def delete_subject(id):
     conn = get_db_connection()
-    conn.execute('DELETE FROM subjects WHERE id = ?', (id,))
+    conn.execute('DELETE FROM subjects WHERE id = %s', (id,))
     conn.commit()
     conn.close()
     flash('Subject deleted successfully!', 'success')
@@ -931,7 +947,7 @@ def add_course():
     course_name = request.form["course_name"]
     school_id = request.form["school_id"]
     conn = get_db_connection()
-    conn.execute("INSERT INTO courses (course_name, school_id) VALUES (?, ?)",
+    conn.execute("INSERT INTO courses (course_name, school_id) VALUES (%s, %s)",
                  (course_name, school_id))
     conn.commit()
     conn.close()
@@ -944,7 +960,7 @@ def delete_course(id):
     if session.get("role") != "admin":
         return redirect(url_for("admin_login"))
     conn = get_db_connection()
-    conn.execute("DELETE FROM courses WHERE id=?", (id,))
+    conn.execute("DELETE FROM courses WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     flash("Course deleted!", "info")
@@ -970,7 +986,7 @@ def register_student():
         try:
             conn.execute("""
                 INSERT INTO students (name, email, password, course_id, semester, roll_number)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """, (name, email, password, course_id, semester, roll_number))
             conn.commit()
             flash("Student registered!", "success")
@@ -1000,7 +1016,7 @@ def register_teacher():
         hashed_password = generate_password_hash(password)
 
         cur.execute(
-            "INSERT INTO teachers (name, email, password, school_id) VALUES (?, ?, ?, ?)",
+            "INSERT INTO teachers (name, email, password, school_id) VALUES (%s, %s, %s, %s)",
             (name, email, hashed_password, school_id),
         )
         conn.commit()
@@ -1062,7 +1078,7 @@ def view_teachers():
         courses = conn.execute("""
             SELECT id, course_name 
             FROM courses 
-            WHERE school_id=?
+            WHERE school_id=%s
         """, (t["school_id"],)).fetchall()
         teacher_courses_map[t["id"]] = courses
 
@@ -1101,7 +1117,7 @@ def update_teacher(teacher_id):
     department = request.form.get("department")
     conn = get_db_connection()
     conn.execute("""
-        UPDATE teachers SET name=?, email=?, department=? WHERE id=?
+        UPDATE teachers SET name=%s, email=%s, department=%s WHERE id=%s
     """, (name, email, department, teacher_id))
     conn.commit()
     conn.close()
@@ -1145,14 +1161,14 @@ def edit_student(student_id):
     if password:  # अगर नया password दिया है तो update होगा
         cur.execute("""
             UPDATE students 
-            SET name = ?, roll_number = ?, email = ?, school_id = ?, course_id = ?, semester = ?, password = ?
-            WHERE id = ?
+            SET name = %s, roll_number = %s, email = %s, school_id = %s, course_id = %s, semester = %s, password = %s
+            WHERE id = %s
         """, (name, roll_number, email, school_id, course_id, semester, password, student_id))
     else:  # password खाली है तो पुराना ही रहेगा
         cur.execute("""
             UPDATE students 
-            SET name = ?, roll_number = ?, email = ?, school_id = ?, course_id = ?, semester = ?
-            WHERE id = ?
+            SET name = %s, roll_number = %s, email = %s, school_id = %s, course_id = %s, semester = %s
+            WHERE id = %s
         """, (name, roll_number, email, school_id, course_id, semester, student_id))
 
     conn.commit()
@@ -1167,7 +1183,7 @@ def delete_student(id):
     if session.get("role") != "admin":
         return redirect(url_for("login"))
     conn = get_db_connection()
-    conn.execute("DELETE FROM students WHERE id=?", (id,))
+    conn.execute("DELETE FROM students WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     flash("Student deleted successfully!", "info")
@@ -1243,7 +1259,7 @@ def manage_teachers():
 def delete_assignment(assignment_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM teacher_courses WHERE id = ?", (assignment_id,))
+    cur.execute("DELETE FROM teacher_courses WHERE id = %s", (assignment_id,))
     conn.commit()
     conn.close()
     flash("Assignment removed successfully!", "success")
@@ -1259,14 +1275,14 @@ def edit_teacher(id):
         name = request.form.get("name")
         email = request.form.get("email")
 
-        cur.execute("UPDATE teachers SET name=?, email=? WHERE id=?", (name, email, id))
+        cur.execute("UPDATE teachers SET name=%s, email=%s WHERE id=%s", (name, email, id))
         conn.commit()
         conn.close()
 
         flash("Teacher updated successfully!", "success")
         return redirect(url_for("manage_teachers"))
 
-    teacher = cur.execute("SELECT * FROM teachers WHERE id=?", (id,)).fetchone()
+    teacher = cur.execute("SELECT * FROM teachers WHERE id=%s", (id,)).fetchone()
     conn.close()
     return render_template("edit_teacher.html", teacher=teacher)
 
@@ -1275,7 +1291,7 @@ def edit_teacher(id):
 def delete_teacher(id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM teachers WHERE id=?", (id,))
+    cur.execute("DELETE FROM teachers WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     flash("Teacher deleted successfully!", "success")
@@ -1292,7 +1308,7 @@ def update_teacher_school(teacher_id):
     if school_id:
         conn = get_db_connection()
         try:
-            conn.execute("UPDATE teachers SET school_id=? WHERE id=?", (school_id, teacher_id))
+            conn.execute("UPDATE teachers SET school_id=%s WHERE id=%s", (school_id, teacher_id))
             conn.commit()
         finally:
             conn.close()
@@ -1321,14 +1337,14 @@ def assign_course(teacher_id):
     # prevent duplicate
     cur.execute("""
         SELECT id FROM teacher_courses
-        WHERE teacher_id=? AND school_id=? AND course_id=? AND subject_id=? AND semester=?
+        WHERE teacher_id=%s AND school_id=%s AND course_id=%s AND subject_id=%s AND semester=%s
     """, (teacher_id, school_id, course_id, subject_id, semester))
     if cur.fetchone():
         flash("This assignment already exists!", "warning")
     else:
         cur.execute("""
             INSERT INTO teacher_courses (teacher_id, school_id, course_id, subject_id, semester)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (teacher_id, school_id, course_id, subject_id, semester))
         conn.commit()
         flash("Assignment saved.", "success")
@@ -1340,7 +1356,7 @@ def assign_course(teacher_id):
 @app.route('/get_courses/<int:school_id>')
 def get_courses(school_id):
     conn = get_db_connection()
-    courses = conn.execute("SELECT id, course_name FROM courses WHERE school_id = ?", (school_id,)).fetchall()
+    courses = conn.execute("SELECT id, course_name FROM courses WHERE school_id = %s", (school_id,)).fetchall()
     conn.close()
     return jsonify([dict(c) for c in courses])
 
@@ -1353,9 +1369,9 @@ def get_subjects(course_id, semester, teacher_id):
     query = """
         SELECT s.id, s.subject_name
         FROM subjects s
-        WHERE s.course_id = ? AND s.semester = ?
+        WHERE s.course_id = %s AND s.semester = %s
         AND s.id NOT IN (
-            SELECT subject_id FROM teacher_courses WHERE teacher_id = ?
+            SELECT subject_id FROM teacher_courses WHERE teacher_id = %s
         )
     """
     subjects = conn.execute(query, (course_id, semester, teacher_id)).fetchall()
@@ -1370,7 +1386,7 @@ def get_subjects_for_teacher(teacher_id, course_id, semester):
         SELECT s.id, s.subject_name
         FROM teacher_courses tc
         JOIN subjects s ON tc.subject_id = s.id
-        WHERE tc.teacher_id = ? AND tc.course_id = ? AND tc.semester = ?
+        WHERE tc.teacher_id = %s AND tc.course_id = %s AND tc.semester = %s
     """, (teacher_id, course_id, semester)).fetchall()
     conn.close()
     return jsonify([{"id": s["id"], "subject_name": s["subject_name"]} for s in subjects])
@@ -1397,12 +1413,12 @@ def manage_staff():
         school_id = request.form["school_id"]
 
         # Check duplicate email
-        existing = conn.execute("SELECT * FROM staff WHERE email = ?", (email,)).fetchone()
+        existing = conn.execute("SELECT * FROM staff WHERE email = %s", (email,)).fetchone()
         if existing:
             flash("⚠️ Staff with this email already exists.", "danger")
         else:
             conn.execute(
-                "INSERT INTO staff (name, email, password, school_id) VALUES (?, ?, ?, ?)",
+                "INSERT INTO staff (name, email, password, school_id) VALUES (%s, %s, %s, %s)",
                 (name, email, password, school_id)
             )
             conn.commit()
@@ -1431,14 +1447,14 @@ def edit_staff(staff_id):
         name = request.form["name"]
         email = request.form["email"]
         school_id = request.form["school_id"]
-        cur.execute("UPDATE staff SET name=?, email=?, school_id=? WHERE id=?",
+        cur.execute("UPDATE staff SET name=%s, email=%s, school_id=%s WHERE id=%s",
                     (name, email, school_id, staff_id))
         conn.commit()
         conn.close()
         flash("Staff updated successfully!", "success")
         return redirect(url_for("manage_staff"))
 
-    cur.execute("SELECT * FROM staff WHERE id=?", (staff_id,))
+    cur.execute("SELECT * FROM staff WHERE id=%s", (staff_id,))
     staff = cur.fetchone()
     cur.execute("SELECT * FROM schools")
     schools = cur.fetchall()
@@ -1451,7 +1467,7 @@ def edit_staff(staff_id):
 def delete_staff(staff_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM staff WHERE id=?", (staff_id,))
+    cur.execute("DELETE FROM staff WHERE id=%s", (staff_id,))
     conn.commit()
     conn.close()
     flash("Staff deleted successfully!", "success")
@@ -1480,15 +1496,15 @@ def update_staff():
         hashed = generate_password_hash(new_password)
         cur.execute("""
             UPDATE staff
-            SET name = ?, email = ?, school_id = ?, password = ?
-            WHERE id = ?
+            SET name = %s, email = %s, school_id = %s, password = %s
+            WHERE id = %s
         """, (name, email, school_id, hashed, staff_id))
     else:
         # 🔐 password blank chhoda to sirf basic details update
         cur.execute("""
             UPDATE staff
-            SET name = ?, email = ?, school_id = ?
-            WHERE id = ?
+            SET name = %s, email = %s, school_id = %s
+            WHERE id = %s
         """, (name, email, school_id, staff_id))
 
     conn.commit()
@@ -1506,8 +1522,8 @@ def staff_dashboard():
 
     school_id = session.get("school_id")
     conn = get_db_connection()
-    staff = conn.execute("SELECT * FROM staff WHERE id = ?", (session["user_id"],)).fetchone()
-    school = conn.execute("SELECT school_name AS name FROM schools WHERE id=?", (school_id,)).fetchone()
+    staff = conn.execute("SELECT * FROM staff WHERE id = %s", (session["user_id"],)).fetchone()
+    school = conn.execute("SELECT school_name AS name FROM schools WHERE id=%s", (school_id,)).fetchone()
     conn.close()
 
 # ✅ Defensive check
@@ -1528,10 +1544,10 @@ def staff_register_student():
     school_id = session["school_id"]
 
     # Load courses of this staff's school
-    courses = conn.execute("SELECT id, course_name FROM courses WHERE school_id = ?", (school_id,)).fetchall()
+    courses = conn.execute("SELECT id, course_name FROM courses WHERE school_id = %s", (school_id,)).fetchall()
 
     # Get school info
-    school = conn.execute("SELECT school_name AS name FROM schools WHERE id=?", (school_id,)).fetchone()
+    school = conn.execute("SELECT school_name AS name FROM schools WHERE id=%s", (school_id,)).fetchone()
 
     if request.method == "POST":
         name = request.form["name"].strip()
@@ -1542,7 +1558,7 @@ def staff_register_student():
         password = generate_password_hash(request.form["password"])
 
         exists = conn.execute(
-            "SELECT 1 FROM students WHERE email = ? OR roll_number = ?", (email, roll_number)
+            "SELECT 1 FROM students WHERE email = %s OR roll_number = %s", (email, roll_number)
         ).fetchone()
 
         if exists:
@@ -1550,7 +1566,7 @@ def staff_register_student():
         else:
             conn.execute("""
                 INSERT INTO students (name, email, roll_number, password, course_id, semester, school_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (name, email, roll_number, password, course_id, semester, school_id))
             conn.commit()
             flash(f"✅ Student '{name}' registered successfully!", "success")
@@ -1569,7 +1585,7 @@ def staff_view_students():
 
     # Get all courses for dropdown
     courses = conn.execute("""
-        SELECT id, course_name FROM courses WHERE school_id=?
+        SELECT id, course_name FROM courses WHERE school_id=%s
     """, (school_id,)).fetchall()
 
     # FORM VALUES
@@ -1581,26 +1597,26 @@ def staff_view_students():
         SELECT s.id, s.name, s.email, s.roll_number, s.semester, c.course_name
         FROM students s
         LEFT JOIN courses c ON s.course_id = c.id
-        WHERE s.school_id=?
+        WHERE s.school_id=%s
     """
     params = [school_id]
 
     # Add filters dynamically
     if search:
-        query += " AND (LOWER(s.name) LIKE ? OR LOWER(s.email) LIKE ? OR s.roll_number LIKE ?)"
+        query += " AND (LOWER(s.name) LIKE %s OR LOWER(s.email) LIKE %s OR s.roll_number LIKE %s)"
         params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
 
     if course_id:
-        query += " AND s.course_id=?"
+        query += " AND s.course_id=%s"
         params.append(course_id)
 
     if semester:
-        query += " AND s.semester=?"
+        query += " AND s.semester=%s"
         params.append(semester)
 
     students = conn.execute(query, params).fetchall()
 
-    school = conn.execute("SELECT school_name AS name FROM schools WHERE id=?", (school_id,)).fetchone()
+    school = conn.execute("SELECT school_name AS name FROM schools WHERE id=%s", (school_id,)).fetchone()
     conn.close()
 
     return render_template(
@@ -1627,7 +1643,7 @@ def staff_edit_student(student_id):
     student = conn.execute("""
         SELECT id, name, email, roll_number, semester, course_id
         FROM students
-        WHERE id = ? AND school_id = ?
+        WHERE id = %s AND school_id = %s
     """, (student_id, school_id)).fetchone()
 
     if not student:
@@ -1645,8 +1661,8 @@ def staff_edit_student(student_id):
 
         conn.execute("""
             UPDATE students
-            SET name=?, email=?, roll_number=?, semester=?
-            WHERE id=? AND school_id=?
+            SET name=%s, email=%s, roll_number=%s, semester=%s
+            WHERE id=%s AND school_id=%s
         """, (
             data["name"].strip(),
             data["email"].strip(),
@@ -1682,7 +1698,7 @@ def staff_delete_student(student_id):
     conn = get_db_connection()
 
     # Delete only if belongs to this staff's school
-    conn.execute("DELETE FROM students WHERE id=? AND school_id=?", (student_id, school_id))
+    conn.execute("DELETE FROM students WHERE id=%s AND school_id=%s", (student_id, school_id))
     conn.commit()
     conn.close()
 
@@ -1699,7 +1715,7 @@ def staff_attendance_records():
 
     # Dropdown data
     courses = conn.execute(
-        "SELECT id, course_name FROM courses WHERE school_id=?",
+        "SELECT id, course_name FROM courses WHERE school_id=%s",
         (school_id,)
     ).fetchall()
 
@@ -1726,28 +1742,28 @@ def staff_attendance_records():
         FROM attendance a
         JOIN students s ON a.student_id = s.id
         JOIN courses c ON a.course_id = c.id
-        WHERE s.school_id=?
+        WHERE s.school_id=%s
     """
     params = [school_id]
 
     if course_id:
-        query += " AND a.course_id=?"
+        query += " AND a.course_id=%s"
         params.append(course_id)
 
     if semester:
-        query += " AND a.semester=?"
+        query += " AND a.semester=%s"
         params.append(semester)
 
     if subject_id:
-        query += " AND a.subject_id=?"
+        query += " AND a.subject_id=%s"
         params.append(subject_id)
 
     if year:
-        query += " AND strftime('%Y', a.date)=?"
+        query += " AND strftime('%Y', a.date)=%s"
         params.append(year)
 
     if month:
-        query += " AND strftime('%m', a.date)=?"
+        query += " AND strftime('%m', a.date)=%s"
         params.append(f"{int(month):02d}")
 
     query += " ORDER BY a.date DESC"
@@ -1780,7 +1796,7 @@ def staff_edit_attendance(attendance_id):
         FROM attendance a
         JOIN students s ON a.student_id = s.id
         JOIN courses c ON a.course_id = c.id
-        WHERE a.id=? AND s.school_id=?
+        WHERE a.id=%s AND s.school_id=%s
     """, (attendance_id, school_id)).fetchone()
 
     if not record:
@@ -1789,7 +1805,7 @@ def staff_edit_attendance(attendance_id):
 
     if request.method == "POST":
         data = request.get_json()
-        conn.execute("UPDATE attendance SET status=?, remark=? WHERE id=?", (data["status"], data["remark"], attendance_id))
+        conn.execute("UPDATE attendance SET status=%s, remark=%s WHERE id=%s", (data["status"], data["remark"], attendance_id))
         conn.commit()
         conn.close()
         return jsonify({"message": "Attendance updated successfully!"})
@@ -1808,7 +1824,7 @@ def staff_delete_attendance(attendance_id):
     conn = get_db_connection()
     conn.execute("""
         DELETE FROM attendance
-        WHERE id=? AND student_id IN (SELECT id FROM students WHERE school_id=?)
+        WHERE id=%s AND student_id IN (SELECT id FROM students WHERE school_id=%s)
     """, (attendance_id, school_id))
     conn.commit()
     conn.close() 
@@ -1836,7 +1852,7 @@ def staff_download_attendance():
         FROM attendance a
         JOIN students s ON a.student_id = s.id
         JOIN courses c ON a.course_id = c.id
-        WHERE s.school_id=?
+        WHERE s.school_id=%s
         ORDER BY a.date DESC
     """, (school_id,)).fetchall()
 
@@ -1890,7 +1906,7 @@ def student_dashboard():
         JOIN students s ON a.student_id = s.id
         JOIN subjects sub ON a.subject_id = sub.id
         JOIN teachers t ON a.marked_by = t.id
-        WHERE a.student_id = ?
+        WHERE a.student_id = %s
         ORDER BY a.date DESC
     """, (session["user_id"],)).fetchall()
 
@@ -1904,7 +1920,7 @@ def student_dashboard():
             ROUND(SUM(CASE WHEN a.status = 'Present' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS percentage
         FROM attendance a
         JOIN subjects sub ON a.subject_id = sub.id
-        WHERE a.student_id = ?
+        WHERE a.student_id = %s
         GROUP BY sub.subject_name, a.semester
         ORDER BY a.semester, sub.subject_name
     """, (session["user_id"],)).fetchall()
@@ -1923,7 +1939,7 @@ def student_notifications():
 
     conn = get_db_connection()
     # fetch student's course & semester
-    stu = conn.execute("SELECT course_id, semester FROM students WHERE id=?", (sid,)).fetchone()
+    stu = conn.execute("SELECT course_id, semester FROM students WHERE id=%s", (sid,)).fetchone()
     course_id = stu['course_id']
     semester = stu['semester']
 
@@ -1931,8 +1947,8 @@ def student_notifications():
       SELECT n.*, t.name AS teacher_name
       FROM notifications n
       JOIN teachers t ON n.teacher_id = t.id
-      WHERE (n.student_id = ?)
-         OR (n.student_id IS NULL AND n.course_id = ? AND n.semester = ?)
+      WHERE (n.student_id = %s)
+         OR (n.student_id IS NULL AND n.course_id = %s AND n.semester = %s)
       ORDER BY n.created_at DESC
     """, (sid, course_id, semester)).fetchall()
     conn.close()
@@ -1947,7 +1963,7 @@ def get_notifications_for_student(student_id):
     cur.execute("""
         SELECT course_id, semester, school_id
         FROM students
-        WHERE id = ?
+        WHERE id = %s
     """, (student_id,))
     student = cur.fetchone()
     if not student:
@@ -1966,8 +1982,8 @@ def get_notifications_for_student(student_id):
         FROM notifications n
         LEFT JOIN teachers t ON n.teacher_id = t.id
         WHERE 
-            (n.course_id = ? AND n.semester = ? AND n.student_id IS NULL)
-            OR n.student_id = ?
+            (n.course_id = %s AND n.semester = %s AND n.student_id IS NULL)
+            OR n.student_id = %s
         ORDER BY n.created_at DESC
     """, (course_id, semester, student_id))
 
@@ -1994,7 +2010,7 @@ def get_notifications_for_student(student_id):
 def get_courses_by_school(school_id):
     conn = get_db_connection()
     courses = conn.execute(
-        "SELECT id, course_name FROM courses WHERE school_id=?", (school_id,)
+        "SELECT id, course_name FROM courses WHERE school_id=%s", (school_id,)
     ).fetchall()
     conn.close()
     
@@ -2015,7 +2031,7 @@ def teacher_dashboard():
     teacher_id = session["user_id"]
 
     conn = get_db_connection()
-    teacher = conn.execute("SELECT * FROM teachers WHERE id = ?", (session['user_id'],)).fetchone()
+    teacher = conn.execute("SELECT * FROM teachers WHERE id = %s", (session['user_id'],)).fetchone()
     schools = conn.execute("SELECT * FROM schools").fetchall()
     conn.close()
 
@@ -2036,12 +2052,12 @@ def load_students():
     students = conn.execute("""
         SELECT id, name, email, roll_number
         FROM students 
-        WHERE course_id=? AND semester=?
+        WHERE course_id=%s AND semester=%s
         ORDER BY name
     """, (course_id, semester)).fetchall()
 
     schools = conn.execute("SELECT * FROM schools").fetchall()
-    courses = conn.execute("SELECT id, course_name FROM courses WHERE school_id=? ORDER BY course_name", (school_id,)).fetchall()
+    courses = conn.execute("SELECT id, course_name FROM courses WHERE school_id=%s ORDER BY course_name", (school_id,)).fetchall()
     conn.close()
     
     return render_template("teacher_dashboard.html",
@@ -2061,7 +2077,7 @@ def load_students_for_teacher(teacher_id, course_id, semester, subject_id):
     # Verify that this teacher is actually assigned to this subject
     assigned = conn.execute("""
         SELECT 1 FROM teacher_courses
-        WHERE teacher_id = ? AND course_id = ? AND semester = ? AND subject_id = ?
+        WHERE teacher_id = %s AND course_id = %s AND semester = %s AND subject_id = %s
     """, (teacher_id, course_id, semester, subject_id)).fetchone()
 
     if not assigned:
@@ -2072,7 +2088,7 @@ def load_students_for_teacher(teacher_id, course_id, semester, subject_id):
     students = conn.execute("""
         SELECT id, name, roll_number
         FROM students
-        WHERE course_id = ? AND semester = ?
+        WHERE course_id = %s AND semester = %s
         ORDER BY roll_number
     """, (course_id, semester)).fetchall()
 
@@ -2099,7 +2115,7 @@ def mark_attendance():
 
     # ✅ सभी छात्रों के लिए attendance mark करें
     students = conn.execute(
-        "SELECT id FROM students WHERE course_id = ? AND semester = ?",
+        "SELECT id FROM students WHERE course_id = %s AND semester = %s",
         (course_id, semester),
     ).fetchall()
 
@@ -2111,14 +2127,14 @@ def mark_attendance():
         # ✅ Duplicate check (एक दिन में एक ही बार attendance mark)
         existing = conn.execute("""
             SELECT * FROM attendance 
-            WHERE student_id = ? AND subject_id = ? AND date = ?
+            WHERE student_id = %s AND subject_id = %s AND date = %s
         """, (student_id, subject_id, date_today)).fetchone()
 
         if not existing:
             conn.execute("""
                 INSERT INTO attendance 
                 (student_id, course_id, semester, subject_id, date, status, remark, marked_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 student_id,
                 course_id,
@@ -2133,8 +2149,8 @@ def mark_attendance():
             # ✅ अगर पहले से attendance है, तो update कर दो
             conn.execute("""
                 UPDATE attendance
-                SET status = ?, remark = ?, marked_by = ?
-                WHERE student_id = ? AND subject_id = ? AND date = ?
+                SET status = %s, remark = %s, marked_by = %s
+                WHERE student_id = %s AND subject_id = %s AND date = %s
             """, (
                 status,
                 remark,
@@ -2162,7 +2178,7 @@ def teacher_get_subjects():
         SELECT tcs.subject_id, s.subject_name, tcs.course_id, tcs.semester
         FROM teacher_courses tcs
         JOIN subjects s ON tcs.subject_id = s.id
-        WHERE tcs.teacher_id = ?
+        WHERE tcs.teacher_id = %s
         ORDER BY s.subject_name
     """, (teacher_id,)).fetchall()
     conn.close()
@@ -2180,17 +2196,17 @@ def teacher_get_attendance():
     subject_id = request.args.get("subject_id", type=int)
     year = request.args.get("year", type=int) or None
 
-    where = ["a.marked_by = ?"]
+    where = ["a.marked_by = %s"]
     params = [teacher_id]
 
     if course_id:
-        where.append("a.course_id = ?"); params.append(course_id)
+        where.append("a.course_id = %s"); params.append(course_id)
     if semester:
-        where.append("a.semester = ?"); params.append(semester)
+        where.append("a.semester = %s"); params.append(semester)
     if subject_id:
-        where.append("a.subject_id = ?"); params.append(subject_id)
+        where.append("a.subject_id = %s"); params.append(subject_id)
     if year:
-        where.append("strftime('%Y', a.date) = ?"); params.append(str(year))
+        where.append("strftime('%Y', a.date) = %s"); params.append(str(year))
 
     query = f"""
         SELECT a.id AS attendance_id, a.date, a.status, a.remark,
@@ -2224,7 +2240,7 @@ def teacher_update_attendance(attendance_id):
 
     conn = get_db_connection()
     # verify ownership: only the teacher who marked can edit
-    row = conn.execute("SELECT marked_by FROM attendance WHERE id = ?", (attendance_id,)).fetchone()
+    row = conn.execute("SELECT marked_by FROM attendance WHERE id = %s", (attendance_id,)).fetchone()
     if not row:
         conn.close()
         return jsonify({"error":"Attendance row not found"}), 404
@@ -2232,7 +2248,7 @@ def teacher_update_attendance(attendance_id):
         conn.close()
         return jsonify({"error":"Not allowed to edit this attendance"}), 403
 
-    conn.execute("UPDATE attendance SET status = ?, remark = ? WHERE id = ?", (status, remark, attendance_id))
+    conn.execute("UPDATE attendance SET status = %s, remark = %s WHERE id = %s", (status, remark, attendance_id))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -2269,7 +2285,7 @@ def teacher_send_notification():
     conn.execute("""
         INSERT INTO notifications
         (teacher_id, school_id, course_id, semester, subject_id, student_id, title, message, file_path, file_name, mime_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (teacher_id, school_id, course_id, semester, subject_id, student_id, title, message, file_path, file_name, mime_type))
     conn.commit()
     conn.close()
@@ -2288,7 +2304,7 @@ def teacher_notifications():
        SELECT n.*, 
          (SELECT COUNT(*) FROM students st WHERE (n.student_id IS NULL AND st.course_id = n.course_id AND st.semester = n.semester) OR st.id = n.student_id) AS recipient_count
        FROM notifications n
-       WHERE n.teacher_id = ?
+       WHERE n.teacher_id = %s
        ORDER BY n.created_at DESC
     """, (tid,)).fetchall()
     conn.close()
@@ -2303,7 +2319,7 @@ def ajax_get_students(course_id, semester):
     # Verify teacher has access to this course+semester
     check = conn.execute("""
         SELECT 1 FROM teacher_courses 
-        WHERE teacher_id=? AND course_id=? AND semester=? 
+        WHERE teacher_id=%s AND course_id=%s AND semester=%s 
         LIMIT 1
     """, (teacher_id, course_id, semester)).fetchone()
 
@@ -2314,7 +2330,7 @@ def ajax_get_students(course_id, semester):
     students = conn.execute("""
         SELECT id, name, roll_number 
         FROM students 
-        WHERE course_id=? AND semester=?
+        WHERE course_id=%s AND semester=%s
         ORDER BY roll_number
     """, (course_id, semester)).fetchall()
 
@@ -2331,7 +2347,7 @@ def get_courses_for_teacher(school_id):
         SELECT DISTINCT c.id, c.course_name
         FROM courses c
         JOIN teacher_courses tc ON tc.course_id = c.id
-        WHERE tc.teacher_id = ? AND tc.school_id = ?
+        WHERE tc.teacher_id = %s AND tc.school_id = %s
     """
     courses = conn.execute(query, (teacher_id, school_id)).fetchall()
     conn.close()
@@ -2357,7 +2373,7 @@ def admin_attendance():
 @app.route("/admin/ajax/get_courses/<int:school_id>")
 def admin_get_courses(school_id):
     conn = get_db_connection()
-    rows = conn.execute("SELECT id, course_name FROM courses WHERE school_id = ? ORDER BY course_name", (school_id,)).fetchall()
+    rows = conn.execute("SELECT id, course_name FROM courses WHERE school_id = %s ORDER BY course_name", (school_id,)).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -2367,7 +2383,7 @@ def admin_get_courses(school_id):
 def admin_get_semesters(course_id):
     # if you store semester per subject, you can fetch distinct semesters:
     conn = get_db_connection()
-    rows = conn.execute("SELECT DISTINCT semester FROM subjects WHERE course_id = ? ORDER BY semester", (course_id,)).fetchall()
+    rows = conn.execute("SELECT DISTINCT semester FROM subjects WHERE course_id = %s ORDER BY semester", (course_id,)).fetchall()
     conn.close()
     result = [r['semester'] for r in rows]
     if not result:
@@ -2380,7 +2396,7 @@ def admin_get_semesters(course_id):
 def admin_get_subjects(course_id, semester):
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, subject_name FROM subjects WHERE course_id = ? AND semester = ? ORDER BY subject_name",
+        "SELECT id, subject_name FROM subjects WHERE course_id = %s AND semester = %s ORDER BY subject_name",
          (course_id, semester)
     ).fetchall()
     conn.close()
@@ -2392,7 +2408,7 @@ def admin_get_subjects(course_id, semester):
 def admin_get_students(course_id, semester):
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, roll_number FROM students WHERE course_id = ? AND semester = ? ORDER BY roll_number",
+        "SELECT id, name, roll_number FROM students WHERE course_id = %s AND semester = %s ORDER BY roll_number",
         (course_id, semester)
     ).fetchall()
     conn.close()
@@ -2415,16 +2431,16 @@ def admin_get_attendance():
     year = request.args.get("year", type=int)  # optional, e.g. 2025
 
     # Build base WHERE clause
-    where = ["a.course_id = ?","a.semester = ?"]
+    where = ["a.course_id = %s","a.semester = %s"]
     params = [course_id, semester]
 
     if subject_id:
-        where.append("a.subject_id = ?"); params.append(subject_id)
+        where.append("a.subject_id = %s"); params.append(subject_id)
     if student_id:
-        where.append("a.student_id = ?"); params.append(student_id)
+        where.append("a.student_id = %s"); params.append(student_id)
         
     if roll_number:
-        where.append("s.roll_number = ?")  # ✅ New filter
+        where.append("s.roll_number = %s")  # ✅ New filter
         params.append(roll_number)
     # optionally filter by school_id (via course -> school). Not strictly needed if course selected.
     # We'll limit rows by course+semester(+subject) which is enough.
@@ -2443,7 +2459,7 @@ def admin_get_attendance():
     JOIN students s ON a.student_id = s.id
     LEFT JOIN subjects sub ON a.subject_id = sub.id
     LEFT JOIN teachers t ON a.marked_by = t.id
-    WHERE {' AND '.join(where)} AND strftime('%Y', a.date) = ?
+    WHERE {' AND '.join(where)} AND strftime('%Y', a.date) = %s
     ORDER BY s.roll_number, a.date
     """
     params.append(str(year))
@@ -2515,7 +2531,7 @@ def student_attendance_detail(student_id):
                 t.name AS teacher_name
             FROM attendance a
             LEFT JOIN teachers t ON a.marked_by = t.id
-            WHERE a.student_id = ?
+            WHERE a.student_id = %s
             ORDER BY a.date DESC
         """, (student_id,))
         rows = [dict(row) for row in cur.fetchall()]
@@ -2599,7 +2615,7 @@ def admin_update_attendance(attendance_id):
         return jsonify({"error":"Invalid status"}), 400
 
     conn = get_db_connection()
-    conn.execute("UPDATE attendance SET status = ?, remark = ? WHERE id = ?", (status, remark, attendance_id))
+    conn.execute("UPDATE attendance SET status = %s, remark = %s WHERE id = %s", (status, remark, attendance_id))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -2633,19 +2649,19 @@ def get_attendance_ajax():
     params = []
 
     if school_id:
-        query += " AND s.school_id = ?"
+        query += " AND s.school_id = %s"
         params.append(school_id)
     if course_id:
-        query += " AND s.course_id = ?"
+        query += " AND s.course_id = %s"
         params.append(course_id)
     if semester:
-        query += " AND a.semester = ?"
+        query += " AND a.semester = %s"
         params.append(semester)
     if subject_id:
-        query += " AND a.subject_id = ?"
+        query += " AND a.subject_id = %s"
         params.append(subject_id)
     if student_id:
-        query += " AND s.id = ?"
+        query += " AND s.id = %s"
         params.append(student_id)
     records = cur.execute(query, params).fetchall()
 
@@ -2699,11 +2715,11 @@ def change_password():
     cur = conn.cursor()
 
     table = "students" if session["role"] == "student" else "teachers"
-    cur.execute(f"SELECT * FROM {table} WHERE id=?", (session["user_id"],))
+    cur.execute(f"SELECT * FROM {table} WHERE id=%s", (session["user_id"],))
     user = cur.fetchone()
 
     if user and check_password_hash(user["password"], old):
-        cur.execute(f"UPDATE {table} SET password=? WHERE id=?",
+        cur.execute(f"UPDATE {table} SET password=%s WHERE id=%s",
                     (generate_password_hash(new), session["user_id"]))
         conn.commit()
         flash("Password updated successfully!", "success")
@@ -2746,7 +2762,7 @@ def admin_search_by_roll():
         JOIN students s ON a.student_id = s.id
         LEFT JOIN subjects sub ON a.subject_id = sub.id
         LEFT JOIN teachers t ON a.marked_by = t.id
-        WHERE s.roll_number = ?
+        WHERE s.roll_number = %s
         ORDER BY a.date DESC
     """
     records = cur.execute(query, (roll_number,)).fetchall()
