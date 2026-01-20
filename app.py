@@ -169,8 +169,8 @@ def verify_otp():
     role = request.form.get("role")
     otp = request.form.get("otp")
     
-    cur = conn.cursor()
     conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute(f"SELECT * FROM {role}s WHERE email=%s", (email,))
     user = cur.fetchone()
 
@@ -193,9 +193,9 @@ def reset_password():
     role = request.form.get("role")
     new_password = request.form.get("password")
     
-    cur = conn.cursor()
-
+    
     conn = get_db_connection()
+    cur = conn.cursor()
     hashed_pw = generate_password_hash(new_password)
 
     cur.execute(f"UPDATE {role}s SET password=%s, otp_hash=NULL, otp_expiry=NULL WHERE email=%s", (hashed_pw, email))
@@ -535,7 +535,6 @@ def login():
         password = request.form.get("password","")
         role = request.form.get("role", "")
         
-        cur = conn.cursor()
 
 # ✅ Get the recaptcha response from form
         recaptcha_response = request.form.get("g-recaptcha-response")
@@ -556,7 +555,7 @@ def login():
              return render_template("login.html")
 
         conn = get_db_connection()
-
+        cur = conn.cursor()
         # check lock first
         is_locked, locked_until = check_account_lock(conn, email, role)
         if is_locked:
@@ -621,10 +620,10 @@ def forgot_password():
         email = request.form.get("email", "").strip().lower()
         role = request.form.get("role", "student")  # choose role on UI
         
-        cur = conn.cursor()
 
         # find user by role
         conn = get_db_connection()
+        cur = conn.cursor()
         if role == "student":
          cur.execute("SELECT id, email, name FROM students WHERE email = %s", (email,))
          user = cur.fetchone()
@@ -694,8 +693,9 @@ def verify_otp_page():
         if not otp or not new_password:
             flash("OTP और नया पासवर्ड दोनों भरें।", "warning")
             return redirect(url_for("verify_otp_page", role=role, user_id=user_id))
-        cur = conn.cursor()
+        
         conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute("SELECT * FROM password_resets WHERE user_id=%s AND role=%s", (user_id, role))
         row = cur.fetchone()
         if not row:
@@ -780,66 +780,7 @@ def logout():
 # ============================================================
 
 # ✅ Admin Login Route
-@app.route("/admin/login", methods=["GET", "POST"])
-def admin_login():
-    if request.method == "POST":
-        username = request.form["username"].strip()
-        password = request.form["password"].strip() 
-        recaptcha_response = request.form.get("g-recaptcha-response")
-        
-        # 1. Verify reCAPTCHA
-        verify_url = "https://www.google.com/recaptcha/api/siteverify"
-        # Secret key ko hamesha environment variable se uthayein
-        secret_key = os.environ.get("RECAPTCHA_SECRET_KEY", "6Ldeof4rAAAAAFWYXaGiW78kvOF90At6bb0k_p22")
-        res = requests.post(verify_url, data={
-            'secret': secret_key, 
-            'response': recaptcha_response
-        }).json()
-
-        if not res.get("success"):
-            flash("Please verify the reCAPTCHA.", "warning")
-            return render_template("admin_login.html")
-
-        # 2. Check Lockout
-        is_locked, unlock_time = check_lockout(username, 'admin')
-        if is_locked:
-            flash(f"Account locked. Try again later.", "danger")
-            return render_template("admin_login.html") 
-
-        # 3. Database Connection (PostgreSQL Pattern)
-        conn = get_db_connection() # 🟢 sqlite3.connect nahi, get_db_connection use karein
-        cur = conn.cursor()        # 🟢 Cursor banana zaruri hai
-        
-        try:
-            # 🟢 cur.execute use karein aur %s syntax rakhein
-            cur.execute("SELECT * FROM admins WHERE username=%s", (username,))
-            admin = cur.fetchone() 
-
-            # admin structure: (id, username, password)
-            if admin and check_password_hash(admin['password'], password): # 🟢 RealDictCursor hai toh name use karein
-                session.clear()
-                session["admin_id"] = admin["id"]
-                session["admin_username"] = admin["username"]
-                session["user_id"] = admin["id"]
-                session["role"] = "admin" 
-                flash("Login successful!", "success")
-                return redirect(url_for("admin_dashboard"))
-            else:
-                # Failure par failed login record karein
-                record_failed_login(conn, username, 'admin')
-                flash("Invalid admin credentials", "danger")
-        finally:
-            cur.close()
-            conn.close() # 🟢 Connection hamesha close karein
-
-    return render_template("admin_login.html")
-
-# ✅ Admin Logout
-@app.route("/admin/logout")
-def admin_logout():
-    session.clear()
-    flash("You have been logged out", "info")
-    return redirect(url_for("admin_login"))
+ 
 
 # ============================================================
 #                         ADMIN PANEL
@@ -884,7 +825,7 @@ def add_school():
 @app.route("/admin/delete_school/<int:id>")
 def delete_school(id):
     if session.get("role") != "admin":
-        return redirect(url_for("login"))
+        return redirect(url_for("admin_login"))
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM schools WHERE id=%s", (id,))
@@ -896,11 +837,12 @@ def delete_school(id):
 # --- Manage Courses ---
 @app.route('/admin/manage_courses', methods=['GET', 'POST'])
 def manage_courses():
-    if 'admin_id' not in session:
-        return redirect(url_for('admin_login'))
-    cur = conn.cursor()
+    if session.get("role") != "admin":
+        return redirect(url_for("login"))
+    
 
     conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute("SELECT * FROM schools")
     schools = cur.fetchall()
 
@@ -911,8 +853,7 @@ def manage_courses():
         # पहले से exist check
         cur.execute(
             "SELECT * FROM courses WHERE course_name=%s AND school_id=%s",
-            (course_name, school_id)
-        )
+            (course_name, school_id))
         existing = cur.fetchone()
 
         if existing:
@@ -984,8 +925,9 @@ def manage_subjects():
 #--- delete subject ---
 @app.route('/admin/delete_subject/<int:id>')
 def delete_subject(id):
-    cur = conn.cursor()
+    
     conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute('DELETE FROM subjects WHERE id = %s', (id,))
     conn.commit()
     conn.close()
@@ -999,8 +941,9 @@ def add_course():
         return redirect(url_for("login"))
     course_name = request.form["course_name"]
     school_id = request.form["school_id"]
-    cur = conn.cursor()
+    
     conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute("INSERT INTO courses (course_name, school_id) VALUES (%s, %s)",
                  (course_name, school_id))
     conn.commit()
@@ -1013,8 +956,9 @@ def add_course():
 def delete_course(id):
     if session.get("role") != "admin":
         return redirect(url_for("admin_login"))
-    cur = conn.cursor()
+    
     conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute("DELETE FROM courses WHERE id=%s", (id,))
     conn.commit()
     conn.close()
@@ -1026,8 +970,9 @@ def delete_course(id):
 def register_student():
     if session.get("role") != "admin":
         return redirect(url_for("login"))
-    cur = conn.cursor()
+    
     conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute("SELECT * FROM schools")  # ✅ पहले schools लेंगे
     schools = cur.fetchall()
 
@@ -1060,7 +1005,7 @@ def register_teacher():
     if session.get("role") != "admin":
         flash("Not authorized", "danger")
         return redirect(url_for("login"))
-    cur = conn.cursor()
+    
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -1631,10 +1576,10 @@ def staff_register_student():
         return redirect(url_for("login"))  
 
     conn = get_db_connection()
+    cur = conn.cursor()
     school_id = session["school_id"]
 
     # Load courses of this staff's school
-    cur = conn.cursor()
     cur.execute("SELECT id, course_name FROM courses WHERE school_id = %s", (school_id,))
     courses = cur.fetchall()
 
