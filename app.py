@@ -69,8 +69,8 @@ limiter = Limiter(
 app.config.update({
     "MAIL_SERVER": "smtp.gmail.com",
     "MAIL_PORT": 587,
-   "MAIL_USERNAME": os.environ.get('MAIL_USERNAME', '25mscup022@student.rru.ac.in'),
-    "MAIL_PASSWORD": os.environ.get('MAIL_PASSWORD', 'YOUR_EMAIL_APP_PASSWORD'),
+    "MAIL_USERNAME": "25mscup022@student.rru.ac.in",
+    "MAIL_PASSWORD": "password", # 🟢 Gmail 'App Password' yahan dalein
     "MAIL_USE_TLS": True,
     "MAIL_USE_SSL": False,
     "OTP_EXPIRY_MINUTES": 10,
@@ -102,6 +102,17 @@ def block_bad_bots():
         if bad in ua:
             abort(403)
 
+# ======================== Forgot Password APIs ============================
+# Helper: map role -> table name (validate)
+# Helper: map role -> table name (validate)
+def table_for_role(role):
+    mapping = {
+        'student': 'students',
+        'teacher': 'teachers',
+        'staff': 'staff',
+        'admin': 'admins',
+    }
+    return mapping.get(role.lower())
 
 @limiter.limit("3 per minute")
 @app.route('/send-otp', methods=['POST'])
@@ -110,57 +121,66 @@ def send_otp():
     email = (data.get('email') or '').strip().lower()
     role = (data.get('role') or 'student').strip().lower()
 
-     # 🚨 RESTRICTION: Sirf Student hi reset kar payein
     if role != 'student':
-            return jsonify({'status':'error', 'message':'Keval students hi password reset kar sakte hain.'}), 403
+        return jsonify({'status':'error', 'message':'Keval students hi password reset kar sakte hain.'}), 403
 
     table = table_for_role(role)
     if not table:
-        return jsonify({'status':'error', 'message':'Invalid role'}), 400
-
-    if not email:
-        return jsonify({'status':'error', 'message':'Email required'}), 400
-# database check
+        return jsonify({'status':'error', 'message':'Invalid role provided'}), 400
+    
     conn = get_db_connection()
     cur = conn.cursor()
-    # parameterized query -> SQL injection safe
-    cur.execute(f"SELECT id, email FROM {table} WHERE email = %s", (email,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'status':'error', 'message':'Email not found for this role'}), 404
 
-    # Rate-limit: agar already active OTP hai (expiry in future), deny short requests
-    cur.execute(f"SELECT otp_expiry FROM {table} WHERE email = %s", (email,))
-    r = cur.fetchone()
-    if r and r.get('otp_expiry'):
-        try:
-            expiry = datetime.fromisoformat(r['otp_expiry'])
-            if expiry > datetime.utcnow():
-                conn.close()
-                return jsonify({'status':'error','message':'OTP already sent. Please wait until it expires.'}), 429
-        except Exception:
-            pass
-
-    otp = generate_otp()
-    otp_hash = generate_password_hash(otp)   # store hashed OTP
-    expiry_time = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
-
-    # Save to DB
-    cur.execute(f"UPDATE {table} SET otp_hash = %s, otp_expiry = %s WHERE email = %s", (otp_hash, expiry_time, email))
-    conn.commit()
-    conn.close()
-
-    # Send email (best-effort)
-    subject = "RRU Attendance — OTP for password reset"
-    body = f"आपका OTP है: {otp}\nयह OTP 5 मिनट के लिए वैध है.\n\nअगर आपने request नहीं किया, तो कृपया ignore करें."
     try:
-        send_email_via_gmail(email, subject, body)
-    except Exception as e:
-        # बेहतर UX: DB में OTP छोड़े, पर user को बताओ
-        return jsonify({'status':'error', 'message':f'Failed to send email: {str(e)}'}), 500
+        # 1. Check user exists
+        cur.execute(f"SELECT otp_expiry FROM {table} WHERE email = %s", (email,))
+        r = cur.fetchone()
 
-    return jsonify({'status':'success', 'message':'OTP sent to your email (check inbox/spam).'})
+        if not r:
+            return jsonify({'status':'error', 'message':'Email not found'}), 404
+
+        # 🟢 YAHAN ADD KAREIN (Rate-limit logic)
+        if r and r.get('otp_expiry'):
+            expiry = r['otp_expiry']
+            # Agar string hai toh convert karein (SQLite/Neon fallback)
+            if isinstance(expiry, str):
+                try:
+                    expiry = datetime.fromisoformat(expiry)
+                except:
+                    expiry = None
+            
+            # Comparison (Naive UTC support for PostgreSQL)
+            now = datetime.utcnow().replace(tzinfo=None)
+            expiry_compare = expiry.replace(tzinfo=None) if expiry else None
+            
+            if expiry_compare and expiry_compare > now:
+                cur.close()
+                conn.close()
+                return jsonify({'status':'error','message':'OTP already sent. Please wait.'}), 429
+
+        # 2. Generate and Save New OTP
+        otp = generate_otp()
+        otp_hash = generate_password_hash(otp)
+        expiry_time = datetime.utcnow() + timedelta(minutes=5)
+
+        cur.execute(f"UPDATE {table} SET otp_hash = %s, otp_expiry = %s WHERE email = %s", 
+                    (otp_hash, expiry_time, email))
+        conn.commit()
+
+        # 3. Send Email
+        subject = "RRU Attendance — OTP for password reset"
+        body = f"आपका OTP है: {otp}\nयह 5 मिनट के लिए वैध है।"
+        send_email_via_gmail(email, subject, body)
+
+        return jsonify({'status':'success', 'message':'OTP sent to your email.'})
+
+    except Exception as e:
+        print(f"OTP Error: {e}")
+        return jsonify({'status':'error', 'message': 'Internal Server Error'}), 500
+    finally:
+        cur.close()
+        conn.close()
+        
 # 2) Verify OTP
 @limiter.limit("5 per minute")
 @app.route("/verify_otp", methods=["POST"])
@@ -169,21 +189,33 @@ def verify_otp():
     role = request.form.get("role")
     otp = request.form.get("otp")
     
+    table = table_for_role(role)
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(f"SELECT * FROM {role}s WHERE email=%s", (email,))
-    user = cur.fetchone()
 
-    if not user or not user["otp_hash"]:
-        return jsonify({"status": "error", "message": "Invalid request"})
+    try:
+        cur.execute(f"SELECT otp_hash, otp_expiry FROM {table} WHERE email=%s", (email,))
+        user = cur.fetchone()
 
-    if datetime.now() > datetime.fromisoformat(user["otp_expiry"]):
-        return jsonify({"status": "error", "message": "OTP expired"})
+        if not user or not user["otp_hash"] or not user["otp_expiry"]:
+            return jsonify({"status": "error", "message": "Invalid request"}), 400
 
-    if not check_password_hash(user["otp_hash"], otp):
-        return jsonify({"status": "error", "message": "Invalid OTP"})
+        # 🟢 Datetime handling fix
+        expiry = user["otp_expiry"]
+        if isinstance(expiry, str):
+            expiry = datetime.fromisoformat(expiry)
+        
+        # Naive compare
+        if expiry.replace(tzinfo=None) < datetime.utcnow():
+            return jsonify({"status": "error", "message": "OTP expired"}), 400
 
-    return jsonify({"status": "success"})
+        if not check_password_hash(user["otp_hash"], otp):
+            return jsonify({"status": "error", "message": "Invalid OTP"}), 400
+
+        return jsonify({"status": "success"})
+    finally:
+        cur.close()
+        conn.close()
 
 # 3) Reset Password
 @limiter.limit("3 per minute")
@@ -200,6 +232,7 @@ def reset_password():
 
     cur.execute(f"UPDATE {role}s SET password=%s, otp_hash=NULL, otp_expiry=NULL WHERE email=%s", (hashed_pw, email))
     conn.commit()
+    cur.close()
     conn.close()
 
     return jsonify({"status": "success"})
@@ -212,25 +245,22 @@ def generate_otp():
 def send_email_via_gmail(to_email, subject, body):
     msg = EmailMessage()
     msg['Subject'] = subject
-    msg['From'] = app.config['MAIL_USERNAME']
+    msg['From'] = app.config.get('MAIL_USERNAME') 
     msg['To'] = to_email
     msg.set_content(body)
 
-    server = smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT'])
-    server.starttls()
-    server.login(app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
-    server.send_message(msg)
-    server.quit()
-
-# Helper: map role -> table name (validate)
-def table_for_role(role):
-    mapping = {
-        'student': 'students',
-        'teacher': 'teachers',
-        'admin': 'admins',
-    }
-    return mapping.get(role)
-
+    try:
+        # 🟢 Config se server aur port uthayein
+        server = smtplib.SMTP(app.config.get('MAIL_SERVER'), app.config.get('MAIL_PORT'))
+        server.starttls()
+        server.login(app.config.get('MAIL_USERNAME'), app.config.get('MAIL_PASSWORD'))
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Gmail SMTP Error: {e}")
+        return False
+    
 # Security Headers
 #@app.after_request
 #def add_security_headers(response):
@@ -242,6 +272,7 @@ def table_for_role(role):
    # return response
 
 # ---------- DB helper ----------
+
 #def get_db_connection():
     #conn = sqlite3.connect("rru.db")
     #conn.row_factory = sqlite3.Row
@@ -276,10 +307,10 @@ def _hash_otp(otp: str, salt: str):
 def send_email(to_email, subject, body, smtp_config=None):
     # सरल smtp send — production में Flask-Mail या transactional provider use करें
     cfg = smtp_config or {
-        "host": app.config["MAIL_SERVER"],
-        "port": app.config["MAIL_PORT"],
-        "username": app.config["MAIL_USERNAME"],
-        "password": app.config["MAIL_PASSWORD"],
+        "host": app.config["SMTP"],
+        "port": app.config["587"],
+        "username": app.config["25mscup022@student.rru.ac.in"],
+        "password": app.config["@Shivam123"],
         "use_tls": app.config.get("MAIL_USE_TLS", True)
     }
     msg = EmailMessage()
@@ -560,6 +591,7 @@ def login():
         is_locked, locked_until = check_account_lock(conn, email, role)
         if is_locked:
             flash(f"Too many failed attempts. Try again after {locked_until}.", "danger")
+            cur.close()
             conn.close()
             return render_template("login.html")
 
@@ -1614,10 +1646,10 @@ def staff_dashboard():
     school_id = session.get("school_id")
     conn = get_db_connection()
     cur = conn.cursor()
-    staff = cur.execute("SELECT * FROM staff WHERE id = %s", (session["user_id"],))
-    staff = staff.fetchone()
-    school = cur.execute("SELECT school_name AS name FROM schools WHERE id=%s", (school_id,))
-    school = school.fetchone()
+    cur.execute("SELECT * FROM staff WHERE id = %s", (session["user_id"],))
+    staff = cur.fetchone()
+    cur.execute("SELECT school_name AS name FROM schools WHERE id=%s", (school_id,))
+    school = cur.fetchone()
     conn.close()
 
 # ✅ Defensive check
@@ -2073,38 +2105,42 @@ def get_notifications_for_student(student_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Find student's course, semester, and school
-    cur.execute("""
-        SELECT course_id, semester, school_id
-        FROM students
-        WHERE id = %s
-    """, (student_id,))
-    student = cur.fetchone()
-    if not student:
-        conn.close()
-        return []
+    try:
+        # 1. Student details fetch karein
+        cur.execute("""
+            SELECT course_id, semester, school_id
+            FROM students
+            WHERE id = %s
+        """, (student_id,))
+        student = cur.fetchone()
+        
+        if not student:
+            return []
 
-    course_id, semester, school_id = student
+        # 🟢 FIX: RealDictCursor mein keys ka use karein
+        course_id = student['course_id']
+        semester = student['semester']
 
-    # Fetch notifications for:
-    #   - entire course + semester
-    #   - OR specific student
-    cur.execute("""
-        SELECT n.id, n.title, n.message, n.created_at,
-               t.name AS teacher_name,
-               n.file_path, n.file_name
-        FROM notifications n
-        LEFT JOIN teachers t ON n.teacher_id = t.id
-        WHERE 
-            (n.course_id = %s AND n.semester = %s AND n.student_id IS NULL)
-            OR n.student_id = %s
-        ORDER BY n.created_at DESC
-    """, (course_id, semester, student_id))
+        # 2. Notifications fetch karein
+        cur.execute("""
+            SELECT n.id, n.title, n.message, n.created_at,
+                   t.name AS teacher_name,
+                   n.file_path, n.file_name
+            FROM notifications n
+            LEFT JOIN teachers t ON n.teacher_id = t.id
+            WHERE 
+                (n.course_id = %s AND n.semester = %s AND n.student_id IS NULL)
+                OR n.student_id = %s
+            ORDER BY n.created_at DESC
+        """, (course_id, semester, student_id))
 
-    rows = cur.fetchall()
-    conn.close()
-
+        rows = cur.fetchall()
+        return rows # RealDictCursor hai toh direct list return kar sakte hain
+    finally:
+        cur.close()
+        conn.close() # Connection hamesha close karein
     # Convert to list of dicts
+    
     notifications = []
     for r in rows:
         notifications.append({
@@ -2128,6 +2164,7 @@ def get_courses_by_school(school_id):
         "SELECT id, course_name FROM courses WHERE school_id=%s", (school_id,)
     )
     courses = cur.fetchall()
+    cur.close()
     conn.close()
     
     courses_list = [{'id': row['id'], 'course_name': row['course_name']} for row in courses]
@@ -2152,6 +2189,7 @@ def teacher_dashboard():
     teacher = cur.fetchone()
     cur.execute("SELECT * FROM schools")
     schools = cur.fetchall()
+    cur.close()
     conn.close()
 
     return render_template("teacher_dashboard.html", teacher=teacher, schools=schools)
@@ -2958,8 +2996,8 @@ mail = Mail(app)
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = "YOUR_EMAIL@gmail.com"
-app.config['MAIL_PASSWORD'] = "YOUR_EMAIL_APP_PASSWORD"
+app.config['MAIL_USERNAME'] = "25mscup022@student.rru.ac.in"
+app.config['MAIL_PASSWORD'] = "password"
 
 #app.config['MAIL_DEFAULT_SENDER'] = "
 
