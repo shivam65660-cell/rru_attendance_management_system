@@ -780,7 +780,66 @@ def logout():
 # ============================================================
 
 # ✅ Admin Login Route
- 
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"].strip() 
+        recaptcha_response = request.form.get("g-recaptcha-response")
+        
+        # 1. Verify reCAPTCHA
+        verify_url = "https://www.google.com/recaptcha/api/siteverify"
+        # Secret key ko hamesha environment variable se uthayein
+        secret_key = os.environ.get("RECAPTCHA_SECRET_KEY", "6Ldeof4rAAAAAFWYXaGiW78kvOF90At6bb0k_p22")
+        res = requests.post(verify_url, data={
+            'secret': secret_key, 
+            'response': recaptcha_response
+        }).json()
+
+        if not res.get("success"):
+            flash("Please verify the reCAPTCHA.", "warning")
+            return render_template("admin_login.html")
+
+        # 2. Check Lockout
+        is_locked, unlock_time = check_lockout(username, 'admin')
+        if is_locked:
+            flash(f"Account locked. Try again later.", "danger")
+            return render_template("admin_login.html") 
+
+        # 3. Database Connection (PostgreSQL Pattern)
+        conn = get_db_connection() # 🟢 sqlite3.connect nahi, get_db_connection use karein
+        cur = conn.cursor()        # 🟢 Cursor banana zaruri hai
+        
+        try:
+            # 🟢 cur.execute use karein aur %s syntax rakhein
+            cur.execute("SELECT * FROM admins WHERE username=%s", (username,))
+            admin = cur.fetchone() 
+
+            # admin structure: (id, username, password)
+            if admin and check_password_hash(admin['password'], password): # 🟢 RealDictCursor hai toh name use karein
+                session.clear()
+                session["admin_id"] = admin["id"]
+                session["admin_username"] = admin["username"]
+                session["user_id"] = admin["id"]
+                session["role"] = "admin" 
+                flash("Login successful!", "success")
+                return redirect(url_for("admin_dashboard"))
+            else:
+                # Failure par failed login record karein
+                record_failed_login(conn, username, 'admin')
+                flash("Invalid admin credentials", "danger")
+        finally:
+            cur.close()
+            conn.close() # 🟢 Connection hamesha close karein
+
+    return render_template("admin_login.html")
+
+# ✅ Admin Logout
+@app.route("/admin/logout")
+def admin_logout():
+    session.clear()
+    flash("You have been logged out", "info")
+    return redirect(url_for("admin_login"))
 
 # ============================================================
 #                         ADMIN PANEL
@@ -825,7 +884,7 @@ def add_school():
 @app.route("/admin/delete_school/<int:id>")
 def delete_school(id):
     if session.get("role") != "admin":
-        return redirect(url_for("admin_login"))
+        return redirect(url_for("login"))
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM schools WHERE id=%s", (id,))
